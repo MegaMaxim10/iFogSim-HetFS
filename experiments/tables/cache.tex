@@ -1,0 +1,21 @@
+\begin{table}[htbp]
+\centering
+\caption{Path cache on \texttt{esn-router} (D4), 100-node network, five zones: capacity (zones), time to live, and an ESN outage between 500 and 800 ms with and without 100-ms checkpoints.}
+\label{tab:cache}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrr}
+\toprule
+Configuration & Hit ratio & Router sojourn ($\mu$s) & E2E (ms) & Dropped \\
+\midrule
+no cache &  & 37.5 & 203.107 & 0 \\
+1 slot & 0.199 & 46.5 & 203.005 & 0 \\
+2 slots & 0.398 & 27.9 & 203.079 & 0 \\
+3 slots & 0.597 & 14.5 & 203.083 & 0 \\
+5 slots & 0.995 & 3.9 & 203.074 & 0 \\
+5 slots, TTL 500 ms & 0.978 & 4.4 & 203.074 & 0 \\
+5 slots, outage, no checkpoint & 0.987 & 4.1 & 203.074 & 150 \\
+5 slots, outage, checkpoints & 0.994 & 3.9 & 203.074 & 150 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -1,0 +1,17 @@
+\begin{table}[htbp]
+\centering
+\caption{Failure of the uplink of zone z1 between 500 and 1500 ms (D5), tree versus mesh with lateral CAD links (D1); zones z1 and z2 active, exact completion events, means of 5 runs.}
+\label{tab:faults}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrrrr}
+\toprule
+Topology & Scenario & Alert (ms) & E2E (ms) & Emitted & Delivered & Dropped \\
+\midrule
+mesh & baseline & 105.12 & 201.51 & 195 & 174 & 0 \\
+mesh & uplink failure & 115.99 & 213.01 & 195 & 174 & 0 \\
+tree & baseline & 105.12 & 201.51 & 195 & 174 & 0 \\
+tree & uplink failure & 105.12 & 201.51 & 195 & 74 & 100 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

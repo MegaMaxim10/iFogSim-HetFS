@@ -1,0 +1,18 @@
+\begin{table}[htbp]
+\centering
+\caption{Case study under concurrent zones: TimeKeeper subtotals, their sum, and the end-to-end latency measured by the lineage tracer (D6), with iFogSim's completion detection (left) and exact completion events (D3, right); means of 5 runs, ms.}
+\label{tab:concurrency}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Zones & Alert & Dispatch & Sum & End to end & Alert & Dispatch & Sum & End to end \\
+\midrule
+1 & 105.12 & 94.71 & 199.84 & 200.46 & 105.12 & 94.71 & 199.84 & 200.35 \\
+2 & 105.12 & 104.05 & 209.17 & 229.17 & 105.12 & 95.38 & 200.51 & 201.51 \\
+3 & 105.12 & 103.35 & 208.47 & 219.84 & 105.12 & 96.05 & 201.17 & 202.67 \\
+4 & 105.12 & 103.08 & 208.21 & 220.17 & 105.12 & 96.71 & 201.84 & 203.84 \\
+5 & 105.12 & 103.39 & 208.51 & 220.89 & 105.12 & 97.38 & 202.50 & 205.00 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

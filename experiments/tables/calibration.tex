@@ -1,0 +1,19 @@
+\begin{table}[htbp]
+\centering
+\caption{Dijkstra on the road network: median of 5000 timed runs after 50000 warm-up runs, 5 JVMs per size; fitted workload $L = 4.40 + 0.0487\,(V+E)\log_2 V$ MI on the 10\,000-MIPS ESN ($R^2 = 0.88$).}
+\label{tab:calibration}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrrr}
+\toprule
+Nodes & Roads & Ops & Median ($\mu$s) & Range of medians ($\mu$s) & Model ($\mu$s) \\
+\midrule
+25 & 42 & 311 & 2.85 & 2.69 to 2.96 & 1.96 \\
+50 & 67 & 660 & 2.80 & 2.39 to 2.83 & 3.66 \\
+75 & 92 & 1040 & 6.36 & 4.11 to 7.34 & 5.51 \\
+100 & 117 & 1442 & 6.09 & 5.95 to 9.90 & 7.46 \\
+200 & 217 & 3187 & 12.41 & 11.93 to 19.37 & 15.96 \\
+400 & 417 & 7062 & 38.12 & 22.54 to 45.54 & 34.83 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

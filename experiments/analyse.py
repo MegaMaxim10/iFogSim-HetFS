@@ -31,9 +31,10 @@ def tex(name, header, rows, caption, label, align=None):
     os.makedirs(TAB, exist_ok=True)
     align = align or "l" + "r" * (len(header) - 1)
     lines = [r"\begin{table}[htbp]", r"\centering", r"\caption{" + caption + "}", r"\label{" + label + "}",
-             r"\begin{tabular}{" + align + "}", r"\toprule", " & ".join(header) + r" \\", r"\midrule"]
+             r"\begin{adjustbox}{max width=\textwidth}", r"\begin{tabular}{" + align + "}",
+             r"\toprule", " & ".join(header) + r" \\", r"\midrule"]
     lines += [" & ".join(str(c) for c in r) + r" \\" for r in rows]
-    lines += [r"\bottomrule", r"\end{tabular}", r"\end{table}"]
+    lines += [r"\bottomrule", r"\end{tabular}", r"\end{adjustbox}", r"\end{table}"]
     with open(os.path.join(TAB, name + ".tex"), "w") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -88,6 +89,21 @@ def gupta():
     return v, e
 
 
+def gupta_scheduling():
+    d = load("gupta_scheduling")
+    d["si"] = d.label.str.replace("si=", "").astype(float)
+    rows = []
+    for app, loop in [("vrgame", "loop_eeg_display_ms"), ("dcns", "loop_motion_tracker_ms")]:
+        for pl in ["cloud", "edgeward"]:
+            for g in [1, 4]:
+                x = d[(d.app == app) & (d.placement == pl) & (d.groups == g)].set_index("si")[loop]
+                rows.append([app if (pl == "cloud" and g == 1) else "", pl if g == 1 else "", g * 4]
+                            + [f(x[si], 1) for si in [10, 1, 0.1]])
+    tex("gupta_scheduling", ["Case", "Placement", "End dev.", "10 ms", "1 ms", "0.1 ms"], rows,
+        "Control-loop latency (ms) of the original iFogSim case studies with plain iFogSim devices, as a "
+        "function of the PowerDatacenter scheduling interval (seed 1).", "tab:gupta-scheduling", "lllrrr")
+
+
 def concurrency():
     d = load("concurrency")
     d["n"] = nzones(d)
@@ -129,9 +145,9 @@ def calibration():
     r2 = 1 - ((y - pred) ** 2).sum() / ((y - y.mean()) ** 2).sum()
     g = d.groupby("nodes").agg(edges=("edges", "first"), ops=("operations", "first"), med=("median_ms", "median"),
                                lo=("median_ms", "min"), hi=("median_ms", "max"))
-    rows = [[n, r.edges, f(r.ops, 0), f(r.med * 1000, 2), f(r.lo * 1000, 2) + " to " + f(r.hi * 1000, 2),
+    rows = [[n, int(r.edges), f(r.ops, 0), f(r.med * 1000, 2), f(r.lo * 1000, 2) + " to " + f(r.hi * 1000, 2),
              f((b[0] + b[1] * r.ops) / 10, 2)] for n, r in g.iterrows()]
-    tex("calibration", ["Nodes", "Roads", "Ops", "Median (us)", "Range of medians (us)", "Model (us)"], rows,
+    tex("calibration", ["Nodes", "Roads", "Ops", "Median ($\\mu$s)", "Range of medians ($\\mu$s)", "Model ($\\mu$s)"], rows,
         f"Dijkstra on the road network: median of 5000 timed runs after 50000 warm-up runs, 5 JVMs per size; "
         f"fitted workload $L = {b[0]:.2f} + {b[1]:.4f}\\,(V+E)\\log_2 V$ MI on the 10\\,000-MIPS ESN "
         f"($R^2 = {r2:.2f}$).", "tab:calibration")
@@ -153,7 +169,7 @@ def routing_kernel():
         r += [f(x5.e2e_mean_ms, 2)]
         rows.append(r)
     tex("kernel", ["Nodes", "CPU, 1 zone", "CPU, 5 zones", "FPGA, 1 zone", "FPGA, 5 zones", "E2E, CPU, 5 zones"],
-        rows, "Routing kernel executed inside the engine (D2): mean sojourn of a request on esn-router (us), "
+        rows, "Routing kernel executed inside the engine (D2): mean sojourn of a request on \\texttt{esn-router} ($\\mu$s), "
               "CPU or FPGA ($p=10$), one or five simultaneous zones, and end-to-end latency (ms).", "tab:kernel")
     fp = d[d.label == "fpga"].copy()
     fp[["p", "fr", "o"]] = fp.accel.str.split(":", expand=True).iloc[:, 1:4].astype(float)
@@ -166,7 +182,7 @@ def routing_kernel():
         rows.append(r)
     tex("fpga", ["$p$", "$f=1$, $o=0$", "$f=0.9$, $o=0$", "$f=1$, $o=20\\,\\mu$s", "$f=0.9$, $o=20\\,\\mu$s"], rows,
         "Accelerator sensitivity on the 100-node network with five simultaneous zones: mean sojourn of a "
-        "request on esn-router (us). The CPU value is %s us." % f(
+        "request on \\texttt{esn-router} ($\\mu$s). The CPU value is %s\\,$\\mu$s." % f(
             s[(s.road_nodes == 100) & (s.accel == "none") & (s.n == 5)].iloc[0].router_sojourn_ms * 1000, 1),
         "tab:fpga")
     res = d[d.label.str.startswith("resolution")]
@@ -177,11 +193,16 @@ def path_cache():
     d = load("path_cache")
     rows = []
     for _, x in d.iterrows():
-        rows.append([x.label.replace("cache=", "").replace("outage-ckpt=", "outage, ckpt "),
+        lab = x.label
+        names = {"cache=0": "no cache", "cache=1": "1 slot", "cache=2": "2 slots", "cache=3": "3 slots",
+                 "cache=5": "5 slots", "cache=5:8:500": "5 slots, TTL 500 ms",
+                 "outage-ckpt=none": "5 slots, outage, no checkpoint",
+                 "outage-ckpt=100": "5 slots, outage, checkpoints"}
+        rows.append([names.get(lab, lab),
                      "" if pd.isna(x.cache_hit_ratio) else f(x.cache_hit_ratio, 3), f(x.router_sojourn_ms * 1000, 1),
                      f(x.e2e_mean_ms, 3), int(x.tuples_dropped)])
-    tex("cache", ["Configuration", "Hit ratio", "Router sojourn (us)", "E2E (ms)", "Dropped"], rows,
-        "Path cache on esn-router (D4), 100-node network, five zones: capacity (zones), time to live, and an "
+    tex("cache", ["Configuration", "Hit ratio", "Router sojourn ($\\mu$s)", "E2E (ms)", "Dropped"], rows,
+        "Path cache on \\texttt{esn-router} (D4), 100-node network, five zones: capacity (zones), time to live, and an "
         "ESN outage between 500 and 800 ms with and without 100-ms checkpoints.", "tab:cache")
     print(d[["label", "cache_hits", "cache_misses", "checkpoints", "checkpoint_bytes"]])
 
@@ -191,7 +212,8 @@ def faults():
     g = d.groupby(["graph", "label"]).agg(alert=("alert_latency_ms", "mean"), e2e=("e2e_mean_ms", "mean"),
                                          emitted=("trace_emitted", "mean"), delivered=("trace_delivered", "mean"),
                                          dropped=("tuples_dropped", "mean"))
-    rows = [[gr, lab, f(r.alert), f(r.e2e), int(r.emitted), int(r.delivered), int(r.dropped)] for (gr, lab), r in g.iterrows()]
+    rows = [[gr, lab.replace("-", " "), f(r.alert), f(r.e2e), int(r.emitted), int(r.delivered), int(r.dropped)]
+            for (gr, lab), r in g.iterrows()]
     tex("faults", ["Topology", "Scenario", "Alert (ms)", "E2E (ms)", "Emitted", "Delivered", "Dropped"], rows,
         "Failure of the uplink of zone z1 between 500 and 1500 ms (D5), tree versus mesh with lateral CAD "
         "links (D1); zones z1 and z2 active, exact completion events, means of 5 runs.", "tab:faults")
@@ -202,13 +224,12 @@ def battery():
     rows = []
     for _, x in d.iterrows():
         interval = float(x.label.split("=")[1])
-        # analytical exhaustion: first emission at 60 ms, 1 J, 10 mJ per alert, 0.5 W idle
-        k, t = 0, 60.0
-        while 0.5 * t / 1000 + 0.01 * (k + 1) <= 1 + 1e-12:
+        # analytical: emission i at t_i = 50 + P (i + 1) ms (iFogSim's 50-ms start delay),
+        # 1 J, 10 mJ per alert, 0.5 W idle; alert i fails when idle + transmit energy >= 1 J
+        k = 0
+        while 0.5 * (50 + interval * (k + 1)) / 1000 + 0.01 * (k + 1) < 1 - 1e-9:
             k += 1
-            t += interval
-        idle_end = (1 - 0.01 * k) / 0.5 * 1000
-        exhaust = min(t, idle_end)
+        exhaust = 50 + interval * (k + 1)
         rows.append([f"{interval:g}", int(x.battery_tx), k, f(x.battery_exhausted_ms, 1), f(exhaust, 1),
                      int(x.trace_delivered)])
     tex("battery", ["Period (ms)", "Alerts sent", "Expected", "Exhausted at (ms)", "Expected (ms)", "Delivered"], rows,
@@ -235,7 +256,7 @@ def overhead():
 
 
 if __name__ == "__main__":
-    for fn in [companion_reproduction, gupta, concurrency, scheduling_interval, calibration, routing_kernel,
+    for fn in [companion_reproduction, gupta, gupta_scheduling, concurrency, scheduling_interval, calibration, routing_kernel,
                path_cache, faults, battery, overhead]:
         try:
             fn()

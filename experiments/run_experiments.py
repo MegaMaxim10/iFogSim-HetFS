@@ -85,6 +85,14 @@ def gupta_reproduction():
     batch("gupta_reproduction", REFERENCE, runs)
 
 
+def gupta_scheduling():
+    runs = []
+    for app, pl, g, si in itertools.product(["vrgame", "dcns"], ["edgeward", "cloud"], [1, 4], [10, 1, 0.1]):
+        runs.append(["--app", app, "--placement", pl, "--groups", g, "--per-group", 4, "--seed", 1,
+                     "--devices", "vanilla", "--scheduling-interval", si, "--label", f"si={si}"])
+    batch("gupta_scheduling", REFERENCE, runs)
+
+
 def concurrency():
     runs = []
     for zones, seed, exact in itertools.product(ZONES, SEEDS, [False, True]):
@@ -168,7 +176,7 @@ def overhead():
     batch("overhead", REFERENCE, runs, workers=1)
 
 
-ALL = {f.__name__: f for f in [companion_reproduction, gupta_reproduction, concurrency, scheduling_interval,
+ALL = {f.__name__: f for f in [companion_reproduction, gupta_reproduction, gupta_scheduling, concurrency, scheduling_interval,
                                routing_kernel, path_cache, faults, validation, battery, overhead]}
 
 if __name__ == "__main__":

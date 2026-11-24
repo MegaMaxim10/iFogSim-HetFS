@@ -1,0 +1,19 @@
+\begin{table}[htbp]
+\centering
+\caption{Routing kernel executed inside the engine (D2): mean sojourn of a request on \texttt{esn-router} ($\mu$s), CPU or FPGA ($p=10$), one or five simultaneous zones, and end-to-end latency (ms).}
+\label{tab:kernel}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrrr}
+\toprule
+Nodes & CPU, 1 zone & CPU, 5 zones & FPGA, 1 zone & FPGA, 5 zones & E2E, CPU, 5 zones \\
+\midrule
+25 & 2.0 & 10.0 & 0.2 & 0.8 & 203.08 \\
+50 & 3.7 & 18.3 & 0.4 & 1.6 & 203.09 \\
+75 & 5.5 & 27.5 & 0.6 & 2.9 & 203.10 \\
+100 & 7.5 & 37.5 & 0.8 & 3.7 & 203.11 \\
+200 & 16.0 & 80.0 & 1.6 & 7.9 & 203.15 \\
+400 & 34.8 & 173.7 & 3.5 & 17.5 & 203.24 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -72,7 +72,7 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *
  * <p>Options: {@code --app vrgame|dcns --placement cloud|edgeward --groups 1
  * --per-group 4 --devices vanilla|hetfs --exact-completion --monitor --graph
- * --trace --seed s --sim-time ms --out file --label l --run r}. {@code --graph}
+ * --trace --scheduling-interval ms --seed s --sim-time ms --out file --label l --run r}. {@code --graph}
  * routes over the graph equivalent to the tree (D1); {@code --trace} uses HetFS
  * sensors and actuators and a lineage tracer (D6).
  */
@@ -182,6 +182,9 @@ public class ReferenceScenarios {
     // ------------------------------------------------------------------
 
     private FogDevice device(DeviceBuilder b, int parentId, double uplinkLatency) {
+        if (opt.containsKey("scheduling-interval")) {
+            b.schedulingInterval(Double.parseDouble(opt.get("scheduling-interval")));
+        }
         FogDevice d = hetfs ? b.build() : b.buildVanilla();
         if (hetfs) {
             HetFSFogDevice h = (HetFSFogDevice) d;

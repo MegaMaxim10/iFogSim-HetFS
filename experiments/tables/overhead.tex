@@ -1,0 +1,19 @@
+\begin{table}[htbp]
+\centering
+\caption{Wall-clock time of the EEG game (edge-ward, 2 s simulated) in ms, median of 5 runs, and overhead relative to plain iFogSim devices.}
+\label{tab:overhead}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lrrrr}
+\toprule
+Devices & FogDevice & HetFS, no component & HetFS + D1 & HetFS + D1, D3, D6 \\
+\midrule
+7 & 459 & 413 (-10\%) & 406 (-12\%) & 512 (+12\%) \\
+12 & 553 & 567 (+3\%) & 532 (-4\%) & 727 (+31\%) \\
+22 & 846 & 842 (-0\%) & 801 (-5\%) & 1063 (+26\%) \\
+42 & 1267 & 1294 (+2\%) & 1155 (-9\%) & 1673 (+32\%) \\
+82 & 2049 & 2071 (+1\%) & 1870 (-9\%) & 2891 (+41\%) \\
+162 & 3586 & 3446 (-4\%) & 3366 (-6\%) & 5290 (+48\%) \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
