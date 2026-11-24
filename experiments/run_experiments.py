@@ -17,7 +17,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 RES = os.path.join(HERE, "results")
 LIB = os.path.join(ROOT, "lib")
-CP = ":".join([os.path.join(ROOT, "target", "classes")]
+CP = ":".join([os.path.join(ROOT, "hetfs-core", "target", "classes"),
+               os.path.join(ROOT, "hetfs-examples", "target", "classes")]
               + sorted(os.path.join(LIB, f) for f in os.listdir(LIB) if f.endswith(".jar")))
 EMERGENCY = "org.fog.hetfs.examples.emergency.EmergencyScenario"
 REFERENCE = "org.fog.hetfs.examples.reference.ReferenceScenarios"

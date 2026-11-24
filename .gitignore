@@ -1,8 +1,17 @@
+# Build output
 target/
 lib/
 *.class
+
+# IDE files
 .idea/
 *.iml
 .vscode/
+.classpath
+.project
+.settings/
+
+# Experiment by-products
 experiments/results/raw/
 *.part[0-9]*
+__pycache__/

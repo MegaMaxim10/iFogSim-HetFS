@@ -1,20 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.fog</groupId>
-    <artifactId>ifogsim-hetfs</artifactId>
+    <artifactId>ifogsim-hetfs-parent</artifactId>
     <version>2.0.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <packaging>pom</packaging>
 
-    <name>iFogSim-HetFS</name>
-    <description>Extension library for iFogSim: arbitrary graph topologies, heterogeneous
-        compute and input-dependent workloads, execution monitoring, stateful modules,
-        runtime topology events, tuple-lineage latency tracing with replication statistics,
-        and sensor energy models.</description>
+    <name>iFogSim-HetFS (parent)</name>
+    <description>Extension library for iFogSim: graph topologies, heterogeneous computation,
+        execution monitoring, stateful modules, run-time topology events, lineage tracing
+        and sensor energy.</description>
 
     <licenses>
         <license>
@@ -23,88 +21,137 @@
         </license>
     </licenses>
 
+    <developers>
+        <developer>
+            <name>Milliam Maxime Zekeng Ndadji</name>
+            <email>ndadji.maxime@univ-dschang.org</email>
+            <organization>University of Dschang</organization>
+        </developer>
+    </developers>
+
+    <modules>
+        <module>hetfs-core</module>
+        <module>hetfs-examples</module>
+    </modules>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <!-- iFogSim at commit 5f68d39 bundles CloudSim 7, which requires Java 21. -->
         <maven.compiler.release>21</maven.compiler.release>
-        <!-- Version string under which scripts/install-ifogsim.sh installs the iFogSim jar. -->
+        <!-- Version under which scripts/install-ifogsim.sh installs the iFogSim jar. -->
         <ifogsim.version>5f68d39</ifogsim.version>
+        <junit.version>4.13.2</junit.version>
+        <!-- CloudSim and iFogSim keep global static state: one JVM per test class.
+             The reference scenarios reseed Math.random() through reflection. -->
+        <test.argLine>--add-opens java.base/java.lang=ALL-UNNAMED</test.argLine>
     </properties>
 
-    <dependencies>
-        <!-- iFogSim (with its embedded CloudSim 7 sources), built from the official
-             repository at commit 5f68d3947e450d8d2b4af42670be819206be68c9 and installed
-             in the local Maven repository by scripts/install-ifogsim.sh. -->
-        <dependency>
-            <groupId>org.cloudbus</groupId>
-            <artifactId>ifogsim</artifactId>
-            <version>${ifogsim.version}</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <!-- Runtime dependencies of iFogSim itself (versions shipped in its jars/ folder). -->
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-math3</artifactId>
-            <version>3.5</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.googlecode.json-simple</groupId>
-            <artifactId>json-simple</artifactId>
-            <version>1.1.1</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>com.google.guava</groupId>
-            <artifactId>guava</artifactId>
-            <version>18.0</version>
-            <scope>provided</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-lang3</artifactId>
-            <version>3.17.0</version>
-            <scope>provided</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>junit</groupId>
-            <artifactId>junit</artifactId>
-            <version>4.13.2</version>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.fog</groupId>
+                <artifactId>ifogsim-hetfs</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <!-- iFogSim (with its embedded CloudSim 7 sources), built from the official
+                 repository at commit 5f68d3947e450d8d2b4af42670be819206be68c9 and installed
+                 in the local Maven repository by scripts/install-ifogsim.sh. -->
+            <dependency>
+                <groupId>org.cloudbus</groupId>
+                <artifactId>ifogsim</artifactId>
+                <version>${ifogsim.version}</version>
+            </dependency>
+            <!-- Run-time dependencies of iFogSim (versions shipped in its jars/ folder). -->
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-math3</artifactId>
+                <version>3.5</version>
+            </dependency>
+            <dependency>
+                <groupId>com.googlecode.json-simple</groupId>
+                <artifactId>json-simple</artifactId>
+                <version>1.1.1</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>18.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>3.17.0</version>
+            </dependency>
+            <dependency>
+                <groupId>junit</groupId>
+                <artifactId>junit</artifactId>
+                <version>${junit.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.13.0</version>
-                <configuration>
-                    <release>${maven.compiler.release}</release>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
-                <configuration>
-                    <!-- CloudSim and iFogSim keep global static state; every test class
-                         therefore runs in a fresh JVM. -->
-                    <forkCount>1</forkCount>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.6.3</version>
-                <configuration>
-                    <doclint>none</doclint>
-                </configuration>
-            </plugin>
-        </plugins>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>3.13.0</version>
+                    <configuration>
+                        <release>${maven.compiler.release}</release>
+                        <compilerArgs>
+                            <arg>-Xlint:all</arg>
+                        </compilerArgs>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.2.5</version>
+                    <configuration>
+                        <forkCount>1</forkCount>
+                        <reuseForks>false</reuseForks>
+                        <argLine>${test.argLine}</argLine>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>3.2.5</version>
+                    <configuration>
+                        <forkCount>1</forkCount>
+                        <reuseForks>false</reuseForks>
+                        <argLine>${test.argLine}</argLine>
+                    </configuration>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>integration-test</goal>
+                                <goal>verify</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.4.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.1</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.6.3</version>
+                    <configuration>
+                        <doclint>all,-missing</doclint>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
     </build>
 </project>
