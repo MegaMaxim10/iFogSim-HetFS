@@ -26,6 +26,7 @@ import org.fog.hetfs.hardware.WorkloadModel;
 import org.fog.hetfs.stateful.ModuleBehaviour;
 import org.fog.hetfs.stateful.ModuleContext;
 import org.fog.hetfs.stateful.ModuleState;
+import org.fog.hetfs.timing.LatencyTracer;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
 import org.fog.hetfs.topology.PhysicalLink;
@@ -54,6 +55,7 @@ import org.fog.utils.TimeKeeper;
  *       a {@code TopologyEventScheduler};</li>
  *   <li>D3 - exact completion events ({@link #setExactCompletionEvents(boolean)}) and
  *       an {@link ExecutionMonitor};</li>
+ *   <li>D6 - a {@link LatencyTracer} recording the lineage of every traced tuple;</li>
  * </ul>
  * Components of the other modules are attached in the same way (see the
  * corresponding setters).
@@ -89,6 +91,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     private long failures;
     private double downtimeMs;
     private double failedSince;
+
+    // D6
+    private LatencyTracer tracer;
 
     // counters
     private long tuplesForwarded;
@@ -142,6 +147,15 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     public WorkloadModel getWorkload(String moduleName) {
         return workloads.get(moduleName);
+    }
+
+    /** D6. Attaches a lineage tracer (normally shared with sensors and actuators). */
+    public void setTracer(LatencyTracer tracer) {
+        this.tracer = tracer;
+    }
+
+    public LatencyTracer getTracer() {
+        return tracer;
     }
 
     /** D4. Attaches a stateful behaviour to the instance of {@code moduleName} on this device. */
@@ -338,6 +352,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
         if (length != tuple.getCloudletLength()) {
             tuple.setCloudletLength(Math.max(1L, length));
         }
+        if (tracer != null) {
+            tracer.onModuleArrival(tuple, moduleName, CloudSim.clock());
+        }
         if (executionMonitor != null) {
             double nominalMs = tuple.getCloudletLength() / (double) getHost().getTotalMips();
             executionMonitor.onArrival(getName(), moduleName, tuple, CloudSim.clock(), nominalMs);
@@ -429,6 +446,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     protected boolean onTupleCompleted(Tuple tuple, AppModule module, List<Tuple> resultantTuples) {
         if (executionMonitor != null) {
             executionMonitor.onCompletion(tuple, CloudSim.clock());
+        }
+        if (tracer != null) {
+            tracer.onModuleCompletion(tuple, resultantTuples, CloudSim.clock());
         }
         if (failed) {
             // the tuple was executing when the device failed: its results are lost
@@ -591,6 +611,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     // ==================================================================
 
     protected void drop(Tuple tuple, String reason) {
+        if (tracer != null) {
+            tracer.onDrop(tuple, reason);
+        }
         tuplesDropped++;
         dropReasons.merge(reason, 1L, Long::sum);
         onDrop(tuple, reason);

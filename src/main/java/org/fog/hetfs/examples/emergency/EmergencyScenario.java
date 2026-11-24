@@ -40,7 +40,11 @@ import org.fog.hetfs.hardware.HardwareProfile;
 import org.fog.hetfs.stateful.LruCacheBehaviour;
 import org.fog.hetfs.stateful.ModuleState;
 import org.fog.hetfs.core.HetFSController;
+import org.fog.hetfs.core.HetFSActuator;
 import org.fog.hetfs.core.HetFSFogDevice;
+import org.fog.hetfs.core.HetFSSensor;
+import org.fog.hetfs.timing.LatencyTracer;
+import org.fog.hetfs.timing.RunningStatistics;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
 import org.fog.placement.ModuleMapping;
@@ -87,6 +91,8 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --fail-device esn@500-800  device outage between 500 and 800 ms (D5); repeatable
  *                        with ';' (e.g. "esn@500-800;cad-z2@100-200")
  *   --fail-link cad-z1~esn@300-900   outage of a link, both directions (D5, needs --graph)
+ *   --trace              lineage tracing (D6): HetFS sensors and actuators, and the
+ *                        end-to-end and full-boundary latencies of the focal branch
  *   --out file.csv       CSV file to which one result row is appended
  *   --label exp --run 1  free-text identifiers copied into the row
  * </pre>
@@ -137,6 +143,7 @@ public class EmergencyScenario {
     PhysicalGraph graph;
     GraphRouter router;
     ExecutionMonitor monitor;
+    LatencyTracer tracer;
     long wallStart;
 
     /** Result columns, in output order. */
@@ -258,6 +265,17 @@ public class EmergencyScenario {
         }
     }
 
+    boolean tracing() {
+        return opt.containsKey("trace");
+    }
+
+    LatencyTracer tracer() {
+        if (tracer == null) {
+            tracer = new LatencyTracer();
+        }
+        return tracer;
+    }
+
     FogDevice device(DeviceBuilder b) {
         if (opt.containsKey("scheduling-interval")) {
             b.schedulingInterval(Double.parseDouble(opt.get("scheduling-interval")));
@@ -266,14 +284,17 @@ public class EmergencyScenario {
         if (hetfs) {
             HetFSFogDevice h = (HetFSFogDevice) d;
             h.setExactCompletionEvents(opt.containsKey("exact-completion"));
+            if (tracing()) {
+                h.setTracer(tracer());
+            }
             if (opt.containsKey("monitor")) {
                 if (monitor == null) {
                     monitor = new ExecutionMonitor();
                 }
                 h.setExecutionMonitor(monitor);
             }
-        } else if (opt.containsKey("exact-completion") || opt.containsKey("monitor")) {
-            throw new IllegalArgumentException("--exact-completion and --monitor require --devices hetfs");
+        } else if (opt.containsKey("exact-completion") || opt.containsKey("monitor") || tracing()) {
+            throw new IllegalArgumentException("--exact-completion, --monitor and --trace require --devices hetfs");
         }
         devices.add(d);
         byName.put(d.getName(), d);
@@ -281,11 +302,21 @@ public class EmergencyScenario {
     }
 
     Sensor createSensor(String name, String tupleType, int userId) {
-        return new Sensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(ACTIVE_INTERVAL));
+        if (!tracing()) {
+            return new Sensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(ACTIVE_INTERVAL));
+        }
+        HetFSSensor s = new HetFSSensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(ACTIVE_INTERVAL));
+        s.setTracer(tracer());
+        return s;
     }
 
     Actuator createActuator(String name, int userId) {
-        return new Actuator(name, userId, APP_ID, "RESPONSE_UNIT");
+        if (!tracing()) {
+            return new Actuator(name, userId, APP_ID, "RESPONSE_UNIT");
+        }
+        HetFSActuator a = new HetFSActuator(name, userId, APP_ID, "RESPONSE_UNIT");
+        a.setTracer(tracer());
+        return a;
     }
 
     void buildGraph() {
@@ -528,6 +559,9 @@ public class EmergencyScenario {
             result.put("tuples_dropped", dropped);
             result.put("topology_events", faults == null ? 0 : faults.getLog().size());
         }
+        if (tracing()) {
+            traceColumns();
+        }
         if (routingKernel()) {
             long mi = routingWorkload.cpuLength(null, 1);
             result.put("road_nodes", road.nodeCount());
@@ -559,6 +593,49 @@ public class EmergencyScenario {
             monitorColumns("esn", "esn-dispatcher", "dispatcher");
             monitorColumns("iops-" + focalUnit, "iops-" + focalUnit + "-module", "iops");
         }
+    }
+
+    /**
+     * Latencies of the focal branch (focal zone's SAS to focal unit's ITGS) measured on
+     * tuple lineages, after a warm-up of {@code --trace-since} ms (default 0).
+     */
+    void traceColumns() {
+        String sas = "sas-" + focalZone;
+        String itgs = "itgs-" + focalUnit;
+        double since = Double.parseDouble(opt.getOrDefault("trace-since", "0"));
+        String cad = "cad-" + focalZone + "-module";
+        String iops = "iops-" + focalUnit + "-module";
+        LatencyTracer.Point emit = LatencyTracer.Point.emit();
+        RunningStatistics e2e = tracer.segment(sas, itgs, emit, LatencyTracer.Point.actuator(), since);
+        // same boundaries as the TimeKeeper loops
+        RunningStatistics alertTk = tracer.segment(sas, itgs, emit, LatencyTracer.Point.arrival("esn-classifier"), since);
+        RunningStatistics dispatchTk = tracer.segment(sas, itgs, LatencyTracer.Point.completion("esn-dispatcher"),
+                LatencyTracer.Point.actuator(), since);
+        // boundaries moved past the contended modules
+        RunningStatistics alertFull = tracer.segment(sas, itgs, emit,
+                LatencyTracer.Point.completion("esn-classifier"), since);
+        RunningStatistics esnStage = tracer.segment(sas, itgs, LatencyTracer.Point.arrival("esn-classifier"),
+                LatencyTracer.Point.completion("esn-dispatcher"), since);
+        RunningStatistics iopsStage = tracer.segment(sas, itgs, LatencyTracer.Point.arrival(iops),
+                LatencyTracer.Point.completion(iops), since);
+        result.put("trace_emitted", tracer.emittedCount(sas));
+        result.put("trace_delivered", tracer.deliveredCount(sas, itgs));
+        result.put("e2e_n", e2e.getCount());
+        result.put("e2e_mean_ms", e2e.getMean());
+        result.put("e2e_sd_ms", e2e.getStandardDeviation());
+        result.put("e2e_ci95_ms", e2e.getConfidenceHalfWidth95());
+        result.put("e2e_max_ms", e2e.getMax());
+        result.put("trace_alert_tk_ms", alertTk.getMean());
+        result.put("trace_dispatch_tk_ms", dispatchTk.getMean());
+        result.put("trace_alert_full_ms", alertFull.getMean());
+        result.put("trace_esn_stage_ms", esnStage.getMean());
+        result.put("trace_iops_stage_ms", iopsStage.getMean());
+        long drops = 0;
+        for (long d : tracer.getDrops().values()) {
+            drops += d;
+        }
+        result.put("trace_dropped", drops);
+        result.put("cad_module", cad);
     }
 
     void monitorColumns(String device, String module, String prefix) {
