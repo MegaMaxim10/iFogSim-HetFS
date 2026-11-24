@@ -5,9 +5,11 @@ import java.util.List;
 
 import org.cloudbus.cloudsim.UtilizationModelFull;
 import org.cloudbus.cloudsim.core.CloudSim;
+import org.cloudbus.cloudsim.core.SimEvent;
 import org.fog.application.AppEdge;
 import org.fog.entities.Sensor;
 import org.fog.entities.Tuple;
+import org.fog.hetfs.energy.BatteryModel;
 import org.fog.hetfs.timing.LatencyTracer;
 import org.fog.utils.FogEvents;
 import org.fog.utils.FogUtils;
@@ -32,6 +34,8 @@ public class HetFSSensor extends Sensor {
 
     private LatencyTracer tracer;
     private AppEdge edge;
+    private BatteryModel battery;
+    private boolean stopped;
 
     public HetFSSensor(String name, String tupleType, int userId, String appId, Distribution transmitDistribution) {
         super(name, tupleType, userId, appId, transmitDistribution);
@@ -43,6 +47,34 @@ public class HetFSSensor extends Sensor {
 
     public LatencyTracer getTracer() {
         return tracer;
+    }
+
+    /** D7. Powers the sensor from a battery; it stops emitting when the battery is exhausted. */
+    public void setBattery(BatteryModel battery) {
+        this.battery = battery;
+    }
+
+    public BatteryModel getBattery() {
+        return battery;
+    }
+
+    /** True once the sensor has stopped emitting because its battery is exhausted. */
+    public boolean isStopped() {
+        return stopped;
+    }
+
+    @Override
+    public void processEvent(SimEvent ev) {
+        if (ev.getTag() == FogEvents.EMIT_TUPLE && battery != null) {
+            if (stopped) {
+                return;
+            }
+            if (!battery.transmit(CloudSim.clock(), resolveEdge().getTupleNwLength())) {
+                stopped = true;
+                return;
+            }
+        }
+        super.processEvent(ev);
     }
 
     /** The application edge this sensor feeds (resolved on first use). */

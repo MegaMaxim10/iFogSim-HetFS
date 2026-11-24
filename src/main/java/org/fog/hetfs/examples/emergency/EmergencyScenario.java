@@ -31,6 +31,8 @@ import org.fog.entities.Tuple;
 import org.fog.hetfs.concurrent.ExecutionMonitor;
 import org.fog.hetfs.concurrent.ModuleExecutionStats;
 import org.fog.hetfs.core.DeviceBuilder;
+import org.fog.hetfs.energy.BatteryModel;
+import org.fog.hetfs.energy.SensorEnergyReport;
 import org.fog.hetfs.events.FaultInjector;
 import org.fog.hetfs.events.TopologyEventScheduler;
 import org.fog.hetfs.hardware.AccelerationProfile;
@@ -91,6 +93,10 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --fail-device esn@500-800  device outage between 500 and 800 ms (D5); repeatable
  *                        with ';' (e.g. "esn@500-800;cad-z2@100-200")
  *   --fail-link cad-z1~esn@300-900   outage of a link, both directions (D5, needs --graph)
+ *   --battery C:tx[:idle]  battery of C joules for every SAS, tx joules per transmission
+ *                        and idle W (D7); implies HetFS sensors
+ *   --sensor-interval ms  SAS emission period (default 10)
+ *   --sim-time ms        simulated duration (iFogSim default 2000)
  *   --trace              lineage tracing (D6): HetFS sensors and actuators, and the
  *                        end-to-end and full-boundary latencies of the focal branch
  *   --out file.csv       CSV file to which one result row is appended
@@ -302,11 +308,19 @@ public class EmergencyScenario {
     }
 
     Sensor createSensor(String name, String tupleType, int userId) {
-        if (!tracing()) {
-            return new Sensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(ACTIVE_INTERVAL));
+        double interval = Double.parseDouble(opt.getOrDefault("sensor-interval", "" + ACTIVE_INTERVAL));
+        if (!tracing() && !opt.containsKey("battery")) {
+            return new Sensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(interval));
         }
-        HetFSSensor s = new HetFSSensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(ACTIVE_INTERVAL));
-        s.setTracer(tracer());
+        HetFSSensor s = new HetFSSensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(interval));
+        if (tracing()) {
+            s.setTracer(tracer());
+        }
+        if (opt.containsKey("battery")) {
+            String[] f = opt.get("battery").split(":");
+            s.setBattery(new BatteryModel(Double.parseDouble(f[0]), Double.parseDouble(f[1]), 0,
+                    f.length > 2 ? Double.parseDouble(f[2]) : 0));
+        }
         return s;
     }
 
@@ -561,6 +575,19 @@ public class EmergencyScenario {
         }
         if (tracing()) {
             traceColumns();
+        }
+        if (opt.containsKey("battery")) {
+            double now = CloudSim.clock();
+            for (SensorEnergyReport.Entry e : SensorEnergyReport.collect(sensors, now)) {
+                if (e.sensor.equals("sas-" + focalZone)) {
+                    result.put("battery_tx", e.transmissions);
+                    result.put("battery_tx_j", e.transmitJ);
+                    result.put("battery_idle_j", e.idleJ);
+                    result.put("battery_remaining", e.remainingFraction);
+                    result.put("battery_exhausted_ms", e.exhaustedAtMs);
+                    result.put("battery_lifetime_ms", e.projectedLifetimeMs);
+                }
+            }
         }
         if (routingKernel()) {
             long mi = routingWorkload.cpuLength(null, 1);
