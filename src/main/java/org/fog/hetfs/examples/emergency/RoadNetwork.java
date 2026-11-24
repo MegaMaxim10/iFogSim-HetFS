@@ -12,9 +12,10 @@ import java.util.Random;
 /**
  * The synthetic urban road network of the smart emergency response case study:
  * 25 nodes (five incident zones z1-z5, eight response-unit stations, ten
- * intersections a1-a10 and two bridges b1-b2) and 41 undirected roads, with
- * distances in kilometres. The node and edge lists are those of the reproducibility
- * package of the companion paper (Zenodo, doi:10.5281/zenodo.22234733).
+ * intersections a1-a10 and two bridges b1-b2) and 42 undirected roads, with
+ * distances in kilometres. The node and edge lists are those of {@code CityGraph} in
+ * the reproducibility package of the companion paper
+ * (Zenodo, doi:10.5281/zenodo.22234733).
  *
  * <p>{@link #scaled(int, long)} derives larger networks of the same city by inserting
  * relay junctions in the middle of randomly chosen roads, which keeps every

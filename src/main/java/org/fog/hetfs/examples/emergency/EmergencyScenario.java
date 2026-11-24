@@ -31,6 +31,10 @@ import org.fog.entities.Tuple;
 import org.fog.hetfs.concurrent.ExecutionMonitor;
 import org.fog.hetfs.concurrent.ModuleExecutionStats;
 import org.fog.hetfs.core.DeviceBuilder;
+import org.fog.hetfs.hardware.AccelerationProfile;
+import org.fog.hetfs.hardware.ComplexityWorkload;
+import org.fog.hetfs.hardware.ComputeArchitecture;
+import org.fog.hetfs.hardware.HardwareProfile;
 import org.fog.hetfs.core.HetFSController;
 import org.fog.hetfs.core.HetFSFogDevice;
 import org.fog.hetfs.topology.GraphRouter;
@@ -65,6 +69,14 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --monitor            per-module execution monitor; adds the columns of the
  *                        ESN modules and of the focal IOPS module (D3)
  *   --scheduling-interval 10   PowerDatacenter scheduling interval of every device
+ *   --min-time-between-events 0.01   CloudSim's event-time resolution (ms)
+ *   --routing-kernel     model the Dijkstra unit ranking as a module (esn-router) on the
+ *                        ESN, between the classifier and the dispatcher, whose cost
+ *                        follows (V+E) log2 V on the road network (D2)
+ *   --road-nodes 25      size of the road network (25, or more with relay junctions)
+ *   --mi-fixed a --mi-per-op c   Dijkstra workload a + c (V+E) log2 V in MI
+ *   --accel fpga:10[:f[:o]]   accelerator for esn-router on the ESN: architecture,
+ *                        kernel speedup p, parallel fraction f (1), overhead o in ms (0)
  *   --out file.csv       CSV file to which one result row is appended
  *   --label exp --run 1  free-text identifiers copied into the row
  * </pre>
@@ -88,6 +100,9 @@ public class EmergencyScenario {
     static final double LAT_CAD_RING = 20.0;
 
     static final double ACTIVE_INTERVAL = 10.0;
+    /** Default Dijkstra workload; the experiments pass calibrated values explicitly. */
+    static final double DEFAULT_MI_FIXED = 0.0;
+    static final double DEFAULT_MI_PER_OP = 0.05;
     static final long TUPLE_BYTES = 256;
     static final long LINK_BANDWIDTH = 10_000_000;
 
@@ -161,7 +176,12 @@ public class EmergencyScenario {
         if (opt.containsKey("sim-time")) {
             Config.MAX_SIMULATION_TIME = Integer.parseInt(opt.get("sim-time"));
         }
-        CloudSim.init(1, Calendar.getInstance(), false);
+        if (opt.containsKey("min-time-between-events")) {
+            CloudSim.init(1, Calendar.getInstance(), false,
+                    Double.parseDouble(opt.get("min-time-between-events")));
+        } else {
+            CloudSim.init(1, Calendar.getInstance(), false);
+        }
         FogBroker broker = new FogBroker("broker");
         Application app = createApplication(broker.getId());
         app.setUserId(broker.getId());
@@ -280,6 +300,10 @@ public class EmergencyScenario {
     // Application (identical to the companion implementation)
     // ==================================================================
 
+    boolean routingKernel() {
+        return opt.containsKey("routing-kernel");
+    }
+
     @SuppressWarnings("serial")
     Application createApplication(int userId) {
         Application app = Application.createApplication(APP_ID, userId);
@@ -332,16 +356,58 @@ public class EmergencyScenario {
 
     /** The classifier-to-dispatcher stage; overridden when the routing kernel is modelled. */
     void addClassifierToDispatcher(Application app) {
-        app.addAppEdge("esn-classifier", "esn-dispatcher", 3000, TUPLE_BYTES, "CLASSIFIED_MSG", Tuple.UP, AppEdge.MODULE);
-        app.addTupleMapping("esn-classifier", "ALERT_MSG", "CLASSIFIED_MSG", new FractionalSelectivity(1.0));
+        if (!routingKernel()) {
+            app.addAppEdge("esn-classifier", "esn-dispatcher", 3000, TUPLE_BYTES, "CLASSIFIED_MSG", Tuple.UP, AppEdge.MODULE);
+            app.addTupleMapping("esn-classifier", "ALERT_MSG", "CLASSIFIED_MSG", new FractionalSelectivity(1.0));
+            return;
+        }
+        // The edge length of ROUTE_REQUEST is a placeholder: the workload model of
+        // esn-router replaces it by the Dijkstra cost on the road network.
+        app.addAppModule("esn-router", 512);
+        app.addAppEdge("esn-classifier", "esn-router", 1, TUPLE_BYTES, "ROUTE_REQUEST", Tuple.UP, AppEdge.MODULE);
+        app.addTupleMapping("esn-classifier", "ALERT_MSG", "ROUTE_REQUEST", new FractionalSelectivity(1.0));
+        app.addAppEdge("esn-router", "esn-dispatcher", 3000, TUPLE_BYTES, "ROUTE_RESULT", Tuple.UP, AppEdge.MODULE);
+        app.addTupleMapping("esn-router", "ROUTE_REQUEST", "ROUTE_RESULT", new FractionalSelectivity(1.0));
+        pins.put("esn-router", "esn");
     }
 
     String dispatchInputType() {
-        return "CLASSIFIED_MSG";
+        return routingKernel() ? "ROUTE_RESULT" : "CLASSIFIED_MSG";
     }
 
-    /** Extension point for the module options; nothing to do in the base scenario. */
+    RoadNetwork road;
+    ComplexityWorkload routingWorkload;
+    AccelerationProfile acceleration;
+
     void configureModules(Application app) {
+        if (routingKernel()) {
+            if (!hetfs) {
+                throw new IllegalArgumentException("--routing-kernel requires --devices hetfs");
+            }
+            int nodes = Integer.parseInt(opt.getOrDefault("road-nodes", "25"));
+            road = nodes == 25 ? RoadNetwork.base() : RoadNetwork.scaled(nodes, 7);
+            double a = Double.parseDouble(opt.getOrDefault("mi-fixed", "" + DEFAULT_MI_FIXED));
+            double c = Double.parseDouble(opt.getOrDefault("mi-per-op", "" + DEFAULT_MI_PER_OP));
+            routingWorkload = new ComplexityWorkload(ComplexityWorkload.Complexity.DIJKSTRA_BINARY_HEAP, a, c,
+                    road.nodeCount(), road.roadCount());
+            HetFSFogDevice esn = (HetFSFogDevice) byName.get("esn");
+            esn.setWorkload("esn-router", routingWorkload);
+            if (opt.containsKey("accel")) {
+                acceleration = parseAcceleration(opt.get("accel"));
+                esn.setHardwareProfile(HardwareProfile.cpu().accelerate("esn-router", acceleration));
+            }
+        } else if (opt.containsKey("accel")) {
+            throw new IllegalArgumentException("--accel requires --routing-kernel");
+        }
+    }
+
+    static AccelerationProfile parseAcceleration(String spec) {
+        String[] f = spec.split(":");
+        ComputeArchitecture arch = ComputeArchitecture.valueOf(f[0].toUpperCase(Locale.ROOT));
+        double p = Double.parseDouble(f[1]);
+        double frac = f.length > 2 ? Double.parseDouble(f[2]) : 1.0;
+        double o = f.length > 3 ? Double.parseDouble(f[3]) : 0.0;
+        return new AccelerationProfile(arch, p, frac, o);
     }
 
     /** Extension point for options that need the controller (e.g. fault injection). */
@@ -375,6 +441,19 @@ public class EmergencyScenario {
     /** Extension point: adds module-specific result columns. */
     void collectModules() {
         result.put("exact_completion", opt.containsKey("exact-completion"));
+        if (routingKernel()) {
+            long mi = routingWorkload.cpuLength(null, 1);
+            result.put("road_nodes", road.nodeCount());
+            result.put("road_edges", road.roadCount());
+            result.put("router_cpu_mi", mi);
+            result.put("router_cpu_ms", mi / (double) ESN_MIPS);
+            result.put("accel", acceleration == null ? "none" : opt.get("accel"));
+            result.put("router_effective_ms", acceleration == null ? mi / (double) ESN_MIPS
+                    : acceleration.effectiveLength(mi, ESN_MIPS) / (double) ESN_MIPS);
+            if (monitor != null) {
+                monitorColumns("esn", "esn-router", "router");
+            }
+        }
         if (monitor != null) {
             monitorColumns("esn", "esn-classifier", "classifier");
             monitorColumns("esn", "esn-dispatcher", "dispatcher");
@@ -432,6 +511,10 @@ public class EmergencyScenario {
         if (v instanceof Double || v instanceof Float) {
             return String.format(Locale.ROOT, "%.6f", ((Number) v).doubleValue());
         }
-        return v.toString();
+        String text = v.toString();
+        if (text.contains(",")) {
+            throw new IllegalArgumentException("CSV value contains a comma: " + text);
+        }
+        return text;
     }
 }

@@ -21,6 +21,8 @@ import org.fog.entities.FogDevice;
 import org.fog.entities.FogDeviceCharacteristics;
 import org.fog.entities.Tuple;
 import org.fog.hetfs.concurrent.ExecutionMonitor;
+import org.fog.hetfs.hardware.HardwareProfile;
+import org.fog.hetfs.hardware.WorkloadModel;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
 import org.fog.hetfs.topology.PhysicalLink;
@@ -41,6 +43,8 @@ import org.fog.utils.TimeKeeper;
  * <ul>
  *   <li>D1 - a {@link GraphRouter}, which replaces tree routing by hop-by-hop
  *       forwarding over a {@link PhysicalGraph};</li>
+ *   <li>D2 - a {@link HardwareProfile} (per-module accelerators) and
+ *       {@link WorkloadModel}s (input-dependent module costs);</li>
  *   <li>D3 - exact completion events ({@link #setExactCompletionEvents(boolean)}) and
  *       an {@link ExecutionMonitor};</li>
  * </ul>
@@ -56,6 +60,10 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     // D1
     private GraphRouter router;
+
+    // D2
+    private HardwareProfile hardwareProfile;
+    private final Map<String, WorkloadModel> workloads = new HashMap<>();
 
     // D3
     private boolean exactCompletionEvents;
@@ -91,6 +99,28 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     public GraphRouter getRouter() {
         return router;
+    }
+
+    /** D2. Declares the accelerators available on this device. */
+    public void setHardwareProfile(HardwareProfile profile) {
+        this.hardwareProfile = profile;
+    }
+
+    public HardwareProfile getHardwareProfile() {
+        return hardwareProfile;
+    }
+
+    /** D2. Replaces the fixed edge length of {@code moduleName} by an input-dependent cost. */
+    public void setWorkload(String moduleName, WorkloadModel model) {
+        if (model == null) {
+            workloads.remove(moduleName);
+        } else {
+            workloads.put(moduleName, model);
+        }
+    }
+
+    public WorkloadModel getWorkload(String moduleName) {
+        return workloads.get(moduleName);
     }
 
     /**
@@ -215,10 +245,23 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
      * computational length and to record its arrival.
      */
     protected void prepareLocalExecution(Tuple tuple, String moduleName) {
+        long length = baseLength(tuple, moduleName);
+        if (hardwareProfile != null) {
+            length = hardwareProfile.effectiveLength(moduleName, length, getHost().getTotalMips());
+        }
+        if (length != tuple.getCloudletLength()) {
+            tuple.setCloudletLength(Math.max(1L, length));
+        }
         if (executionMonitor != null) {
             double nominalMs = tuple.getCloudletLength() / (double) getHost().getTotalMips();
             executionMonitor.onArrival(getName(), moduleName, tuple, CloudSim.clock(), nominalMs);
         }
+    }
+
+    /** Length (MI) of the tuple before acceleration: the edge length or the workload model's. */
+    protected long baseLength(Tuple tuple, String moduleName) {
+        WorkloadModel model = workloads.get(moduleName);
+        return model == null ? tuple.getCloudletLength() : model.cpuLength(tuple, tuple.getCloudletLength());
     }
 
     // ==================================================================
