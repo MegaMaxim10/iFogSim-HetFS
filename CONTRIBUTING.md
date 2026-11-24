@@ -2,7 +2,7 @@
 
 ## Reporting problems
 
-Open an issue with the iFogSim commit you build against, your JDK version, a minimal simulation that shows the problem, the result you expected and the result you obtained. When the problem concerns a difference with plain iFogSim, please include the same simulation run with `FogDevice` (`DeviceBuilder#buildVanilla()`).
+Open an issue on [GitHub](https://github.com/MegaMaxim10/iFogSim-HetFS/issues) with the iFogSim commit you build against, your JDK version, a minimal simulation that shows the problem, the result you expected and the result you obtained. When the problem concerns a difference with plain iFogSim, please include the same simulation run with `FogDevice` (`DeviceBuilder#buildVanilla()`).
 
 ## Development set-up
 

@@ -44,6 +44,11 @@ Applications depend on `hetfs-core` only. The examples and the integration tests
 
 ## Building
 
+```bash
+git clone https://github.com/MegaMaxim10/iFogSim-HetFS.git
+cd iFogSim-HetFS
+```
+
 With Maven:
 
 ```bash

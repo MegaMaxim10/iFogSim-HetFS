@@ -14,6 +14,19 @@
         execution monitoring, stateful modules, run-time topology events, lineage tracing
         and sensor energy.</description>
 
+    <url>https://github.com/MegaMaxim10/iFogSim-HetFS</url>
+
+    <scm>
+        <url>https://github.com/MegaMaxim10/iFogSim-HetFS</url>
+        <connection>scm:git:https://github.com/MegaMaxim10/iFogSim-HetFS.git</connection>
+        <developerConnection>scm:git:git@github.com:MegaMaxim10/iFogSim-HetFS.git</developerConnection>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/MegaMaxim10/iFogSim-HetFS/issues</url>
+    </issueManagement>
+
     <licenses>
         <license>
             <name>Apache License, Version 2.0</name>
