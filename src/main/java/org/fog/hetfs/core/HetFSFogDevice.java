@@ -23,6 +23,9 @@ import org.fog.entities.Tuple;
 import org.fog.hetfs.concurrent.ExecutionMonitor;
 import org.fog.hetfs.hardware.HardwareProfile;
 import org.fog.hetfs.hardware.WorkloadModel;
+import org.fog.hetfs.stateful.ModuleBehaviour;
+import org.fog.hetfs.stateful.ModuleContext;
+import org.fog.hetfs.stateful.ModuleState;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
 import org.fog.hetfs.topology.PhysicalLink;
@@ -45,6 +48,8 @@ import org.fog.utils.TimeKeeper;
  *       forwarding over a {@link PhysicalGraph};</li>
  *   <li>D2 - a {@link HardwareProfile} (per-module accelerators) and
  *       {@link WorkloadModel}s (input-dependent module costs);</li>
+ *   <li>D4 - {@link ModuleBehaviour}s with a {@link ModuleState} per module instance,
+ *       and periodic checkpoints;</li>
  *   <li>D3 - exact completion events ({@link #setExactCompletionEvents(boolean)}) and
  *       an {@link ExecutionMonitor};</li>
  * </ul>
@@ -64,6 +69,14 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     // D2
     private HardwareProfile hardwareProfile;
     private final Map<String, WorkloadModel> workloads = new HashMap<>();
+
+    // D4
+    private final Map<String, ModuleBehaviour> behaviours = new HashMap<>();
+    private final Map<String, ModuleState> states = new HashMap<>();
+    private final Map<String, byte[]> checkpoints = new HashMap<>();
+    private double checkpointIntervalMs;
+    private long checkpointsTaken;
+    private long checkpointBytes;
 
     // D3
     private boolean exactCompletionEvents;
@@ -121,6 +134,47 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     public WorkloadModel getWorkload(String moduleName) {
         return workloads.get(moduleName);
+    }
+
+    /** D4. Attaches a stateful behaviour to the instance of {@code moduleName} on this device. */
+    public void setBehaviour(String moduleName, ModuleBehaviour behaviour) {
+        behaviours.put(moduleName, behaviour);
+        states.putIfAbsent(moduleName, new ModuleState());
+    }
+
+    public ModuleBehaviour getBehaviour(String moduleName) {
+        return behaviours.get(moduleName);
+    }
+
+    /** D4. State of the stateful module {@code moduleName} on this device, or null. */
+    public ModuleState getModuleState(String moduleName) {
+        return states.get(moduleName);
+    }
+
+    /**
+     * D4. Snapshots the state of every stateful module every {@code intervalMs} of
+     * simulated time (0 disables checkpointing). The snapshots are what a failed device
+     * recovers (module D5).
+     */
+    public void setCheckpointInterval(double intervalMs) {
+        this.checkpointIntervalMs = intervalMs;
+    }
+
+    public double getCheckpointInterval() {
+        return checkpointIntervalMs;
+    }
+
+    public long getCheckpointsTaken() {
+        return checkpointsTaken;
+    }
+
+    /** Total size of all snapshots taken so far, in bytes. */
+    public long getCheckpointBytes() {
+        return checkpointBytes;
+    }
+
+    private ModuleContext context(String moduleName) {
+        return new ModuleContext(getName(), getId(), moduleName, states.get(moduleName));
     }
 
     /**
@@ -190,9 +244,20 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     // ==================================================================
 
     @Override
+    public void startEntity() {
+        super.startEntity();
+        if (checkpointIntervalMs > 0 && !behaviours.isEmpty()) {
+            send(getId(), checkpointIntervalMs, HetFSEvents.CHECKPOINT);
+        }
+    }
+
+    @Override
     protected void processOtherEvent(SimEvent ev) {
         if (ev.getTag() == HetFSEvents.LINK_FREE) {
             onLinkFree((PhysicalLink) ev.getData());
+        } else if (ev.getTag() == HetFSEvents.CHECKPOINT) {
+            checkpoint();
+            send(getId(), checkpointIntervalMs, HetFSEvents.CHECKPOINT);
         } else {
             super.processOtherEvent(ev);
         }
@@ -246,7 +311,14 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
      */
     protected void prepareLocalExecution(Tuple tuple, String moduleName) {
         long length = baseLength(tuple, moduleName);
-        if (hardwareProfile != null) {
+        boolean bypass = false;
+        ModuleBehaviour behaviour = behaviours.get(moduleName);
+        if (behaviour != null) {
+            ModuleContext ctx = context(moduleName);
+            length = behaviour.onTupleArrival(tuple, length, ctx);
+            bypass = ctx.consumeBypassAcceleration();
+        }
+        if (hardwareProfile != null && !bypass) {
             length = hardwareProfile.effectiveLength(moduleName, length, getHost().getTotalMips());
         }
         if (length != tuple.getCloudletLength()) {
@@ -344,7 +416,54 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
         if (executionMonitor != null) {
             executionMonitor.onCompletion(tuple, CloudSim.clock());
         }
+        ModuleBehaviour behaviour = behaviours.get(module.getName());
+        if (behaviour != null) {
+            behaviour.onTupleCompleted(tuple, resultantTuples, context(module.getName()));
+        }
         return true;
+    }
+
+    @Override
+    protected void processModuleArrival(SimEvent ev) {
+        super.processModuleArrival(ev);
+        AppModule module = (AppModule) ev.getData();
+        ModuleBehaviour behaviour = behaviours.get(module.getName());
+        if (behaviour != null) {
+            behaviour.onInit(context(module.getName()));
+        }
+    }
+
+    /** D4. Takes a snapshot of every stateful module now. */
+    public void checkpoint() {
+        for (Map.Entry<String, ModuleState> e : states.entrySet()) {
+            byte[] snap = e.getValue().snapshot();
+            checkpoints.put(e.getKey(), snap);
+            checkpointBytes += snap.length;
+            checkpointsTaken++;
+        }
+    }
+
+    /** Discards the in-memory state of every stateful module (the device has failed). */
+    protected void loseVolatileState() {
+        for (ModuleState st : states.values()) {
+            st.clear();
+        }
+    }
+
+    /** Restores every stateful module from its last checkpoint (empty if none). */
+    protected void restoreFromCheckpoints() {
+        for (Map.Entry<String, ModuleState> e : states.entrySet()) {
+            byte[] snap = checkpoints.get(e.getKey());
+            if (snap != null) {
+                e.getValue().restore(snap);
+            } else {
+                e.getValue().clear();
+            }
+            ModuleBehaviour b = behaviours.get(e.getKey());
+            if (b != null) {
+                b.onRestore(context(e.getKey()), snap != null);
+            }
+        }
     }
 
     // ==================================================================

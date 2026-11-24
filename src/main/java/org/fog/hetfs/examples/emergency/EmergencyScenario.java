@@ -35,6 +35,8 @@ import org.fog.hetfs.hardware.AccelerationProfile;
 import org.fog.hetfs.hardware.ComplexityWorkload;
 import org.fog.hetfs.hardware.ComputeArchitecture;
 import org.fog.hetfs.hardware.HardwareProfile;
+import org.fog.hetfs.stateful.LruCacheBehaviour;
+import org.fog.hetfs.stateful.ModuleState;
 import org.fog.hetfs.core.HetFSController;
 import org.fog.hetfs.core.HetFSFogDevice;
 import org.fog.hetfs.topology.GraphRouter;
@@ -77,6 +79,9 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --mi-fixed a --mi-per-op c   Dijkstra workload a + c (V+E) log2 V in MI
  *   --accel fpga:10[:f[:o]]   accelerator for esn-router on the ESN: architecture,
  *                        kernel speedup p, parallel fraction f (1), overhead o in ms (0)
+ *   --cache n[:hitMi[:ttlMs]]  LRU path cache of n zones on esn-router, keyed by the
+ *                        incident zone; a hit costs hitMi (default 8) MI (D4)
+ *   --checkpoint-interval ms   checkpoint period of the ESN's stateful modules (D4)
  *   --out file.csv       CSV file to which one result row is appended
  *   --label exp --run 1  free-text identifiers copied into the row
  * </pre>
@@ -378,6 +383,7 @@ public class EmergencyScenario {
     RoadNetwork road;
     ComplexityWorkload routingWorkload;
     AccelerationProfile acceleration;
+    boolean cache;
 
     void configureModules(Application app) {
         if (routingKernel()) {
@@ -396,9 +402,30 @@ public class EmergencyScenario {
                 acceleration = parseAcceleration(opt.get("accel"));
                 esn.setHardwareProfile(HardwareProfile.cpu().accelerate("esn-router", acceleration));
             }
-        } else if (opt.containsKey("accel")) {
-            throw new IllegalArgumentException("--accel requires --routing-kernel");
+            if (opt.containsKey("cache")) {
+                String[] f = opt.get("cache").split(":");
+                int capacity = Integer.parseInt(f[0]);
+                long hitMi = f.length > 1 ? Long.parseLong(f[1]) : 8;
+                double ttl = f.length > 2 ? Double.parseDouble(f[2]) : Double.POSITIVE_INFINITY;
+                esn.setBehaviour("esn-router", new LruCacheBehaviour(EmergencyScenario::incidentZone, capacity, hitMi, ttl));
+                cache = true;
+            }
+            if (opt.containsKey("checkpoint-interval")) {
+                esn.setCheckpointInterval(Double.parseDouble(opt.get("checkpoint-interval")));
+            }
+        } else if (opt.containsKey("accel") || opt.containsKey("cache")) {
+            throw new IllegalArgumentException("--accel and --cache require --routing-kernel");
         }
+    }
+
+    /** Incident zone a tuple descends from, read from the CAD module it went through. */
+    static String incidentZone(Tuple t) {
+        for (String m : t.getModuleCopyMap().keySet()) {
+            if (m.startsWith("cad-") && m.endsWith("-module")) {
+                return m.substring(4, m.length() - 7);
+            }
+        }
+        return null;
     }
 
     static AccelerationProfile parseAcceleration(String spec) {
@@ -452,6 +479,18 @@ public class EmergencyScenario {
                     : acceleration.effectiveLength(mi, ESN_MIPS) / (double) ESN_MIPS);
             if (monitor != null) {
                 monitorColumns("esn", "esn-router", "router");
+            }
+            if (cache) {
+                HetFSFogDevice esn = (HetFSFogDevice) byName.get("esn");
+                ModuleState st = esn.getModuleState("esn-router");
+                long h = LruCacheBehaviour.hits(st);
+                long m = LruCacheBehaviour.misses(st);
+                result.put("cache_hits", h);
+                result.put("cache_misses", m);
+                result.put("cache_hit_ratio", h + m == 0 ? 0.0 : h / (double) (h + m));
+                result.put("cache_entries", LruCacheBehaviour.size(st));
+                result.put("checkpoints", esn.getCheckpointsTaken());
+                result.put("checkpoint_bytes", esn.getCheckpointBytes());
             }
         }
         if (monitor != null) {
