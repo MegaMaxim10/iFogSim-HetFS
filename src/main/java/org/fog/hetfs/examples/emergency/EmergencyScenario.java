@@ -31,6 +31,8 @@ import org.fog.entities.Tuple;
 import org.fog.hetfs.concurrent.ExecutionMonitor;
 import org.fog.hetfs.concurrent.ModuleExecutionStats;
 import org.fog.hetfs.core.DeviceBuilder;
+import org.fog.hetfs.events.FaultInjector;
+import org.fog.hetfs.events.TopologyEventScheduler;
 import org.fog.hetfs.hardware.AccelerationProfile;
 import org.fog.hetfs.hardware.ComplexityWorkload;
 import org.fog.hetfs.hardware.ComputeArchitecture;
@@ -82,6 +84,9 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --cache n[:hitMi[:ttlMs]]  LRU path cache of n zones on esn-router, keyed by the
  *                        incident zone; a hit costs hitMi (default 8) MI (D4)
  *   --checkpoint-interval ms   checkpoint period of the ESN's stateful modules (D4)
+ *   --fail-device esn@500-800  device outage between 500 and 800 ms (D5); repeatable
+ *                        with ';' (e.g. "esn@500-800;cad-z2@100-200")
+ *   --fail-link cad-z1~esn@300-900   outage of a link, both directions (D5, needs --graph)
  *   --out file.csv       CSV file to which one result row is appended
  *   --label exp --run 1  free-text identifiers copied into the row
  * </pre>
@@ -437,8 +442,52 @@ public class EmergencyScenario {
         return new AccelerationProfile(arch, p, frac, o);
     }
 
-    /** Extension point for options that need the controller (e.g. fault injection). */
+    TopologyEventScheduler faults;
+
     void configureAfterController(HetFSController controller) {
+        if (!opt.containsKey("fail-device") && !opt.containsKey("fail-link")) {
+            return;
+        }
+        if (!hetfs) {
+            throw new IllegalArgumentException("fault injection requires --devices hetfs");
+        }
+        faults = new TopologyEventScheduler("fault-injector", graph);
+        FaultInjector inj = FaultInjector.on(faults);
+        for (String spec : opt.getOrDefault("fail-device", "").split(";")) {
+            if (spec.isEmpty()) {
+                continue;
+            }
+            String[] p = spec.split("@");
+            double[] w = window(p[1]);
+            HetFSFogDevice d = (HetFSFogDevice) require(p[0]);
+            inj.failDevice(d, w[0]);
+            if (!Double.isInfinite(w[1])) {
+                inj.recoverDevice(d, w[1]);
+            }
+        }
+        for (String spec : opt.getOrDefault("fail-link", "").split(";")) {
+            if (spec.isEmpty()) {
+                continue;
+            }
+            String[] p = spec.split("@");
+            String[] ends = p[0].split("~");
+            double[] w = window(p[1]);
+            inj.failLink((HetFSFogDevice) require(ends[0]), (HetFSFogDevice) require(ends[1]), w[0], w[1]);
+        }
+    }
+
+    FogDevice require(String name) {
+        FogDevice d = byName.get(name);
+        if (d == null) {
+            throw new IllegalArgumentException("unknown device " + name);
+        }
+        return d;
+    }
+
+    static double[] window(String spec) {
+        String[] f = spec.split("-");
+        return new double[] {Double.parseDouble(f[0]),
+            f.length > 1 ? Double.parseDouble(f[1]) : Double.POSITIVE_INFINITY};
     }
 
     // ==================================================================
@@ -468,6 +517,17 @@ public class EmergencyScenario {
     /** Extension point: adds module-specific result columns. */
     void collectModules() {
         result.put("exact_completion", opt.containsKey("exact-completion"));
+        if (hetfs) {
+            long dropped = 0;
+            long forwarded = 0;
+            for (FogDevice d : devices) {
+                dropped += ((HetFSFogDevice) d).getTuplesDropped();
+                forwarded += ((HetFSFogDevice) d).getTuplesForwarded();
+            }
+            result.put("tuples_forwarded", forwarded);
+            result.put("tuples_dropped", dropped);
+            result.put("topology_events", faults == null ? 0 : faults.getLog().size());
+        }
         if (routingKernel()) {
             long mi = routingWorkload.cpuLength(null, 1);
             result.put("road_nodes", road.nodeCount());
@@ -483,8 +543,9 @@ public class EmergencyScenario {
             if (cache) {
                 HetFSFogDevice esn = (HetFSFogDevice) byName.get("esn");
                 ModuleState st = esn.getModuleState("esn-router");
-                long h = LruCacheBehaviour.hits(st);
-                long m = LruCacheBehaviour.misses(st);
+                LruCacheBehaviour lru = (LruCacheBehaviour) esn.getBehaviour("esn-router");
+                long h = lru.getHits();
+                long m = lru.getMisses();
                 result.put("cache_hits", h);
                 result.put("cache_misses", m);
                 result.put("cache_hit_ratio", h + m == 0 ? 0.0 : h / (double) (h + m));

@@ -18,20 +18,22 @@ import org.fog.entities.Tuple;
  * the capacity is reached. Tuples arriving while the first computation for a key is
  * still running are therefore misses too, as in a real cache.
  *
- * <p>The cache and its counters live in the {@link ModuleState}, so they are lost on a
- * device failure and come back from the last checkpoint on recovery.
+ * <p>The cache entries live in the {@link ModuleState}, so they are lost on a device
+ * failure and come back from the last checkpoint on recovery. The hit, miss and
+ * eviction counters are observations, not simulated state: they are kept by the
+ * behaviour object and survive failures. Use one behaviour object per module instance.
  */
 public class LruCacheBehaviour implements ModuleBehaviour {
 
     static final String ENTRIES = "lru.entries";
-    public static final String HITS = "lru.hits";
-    public static final String MISSES = "lru.misses";
-    public static final String EVICTIONS = "lru.evictions";
 
     private final Function<Tuple, String> keyOf;
     private final int capacity;
     private final long hitLengthMi;
     private final double ttlMs;
+    private long hits;
+    private long misses;
+    private long evictions;
 
     /**
      * @param keyOf       key of a tuple; {@code null} keys are never cached
@@ -65,14 +67,14 @@ public class LruCacheBehaviour implements ModuleBehaviour {
         LinkedHashMap<String, Double> m = entries(ctx.getState());
         Double insertedAt = key == null ? null : m.get(key);
         if (insertedAt != null && ctx.clock() - insertedAt <= ttlMs) {
-            ctx.getState().increment(HITS);
+            hits++;
             ctx.bypassAcceleration();
             return hitLengthMi;
         }
         if (insertedAt != null) {
             m.remove(key);
         }
-        ctx.getState().increment(MISSES);
+        misses++;
         return proposedLength;
     }
 
@@ -87,7 +89,7 @@ public class LruCacheBehaviour implements ModuleBehaviour {
             if (m.size() >= capacity) {
                 String eldest = m.keySet().iterator().next();
                 m.remove(eldest);
-                ctx.getState().increment(EVICTIONS);
+                evictions++;
             }
             m.put(key, ctx.clock());
         } else {
@@ -95,14 +97,19 @@ public class LruCacheBehaviour implements ModuleBehaviour {
         }
     }
 
-    public static long hits(ModuleState s) {
-        return s.getOrDefault(HITS, 0L);
+    public long getHits() {
+        return hits;
     }
 
-    public static long misses(ModuleState s) {
-        return s.getOrDefault(MISSES, 0L);
+    public long getMisses() {
+        return misses;
     }
 
+    public long getEvictions() {
+        return evictions;
+    }
+
+    /** Number of entries currently cached in {@code s}. */
     public static int size(ModuleState s) {
         Map<?, ?> m = s.get(ENTRIES);
         return m == null ? 0 : m.size();

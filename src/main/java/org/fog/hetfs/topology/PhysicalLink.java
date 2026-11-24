@@ -115,7 +115,7 @@ public class PhysicalLink {
         return transmittedTuples;
     }
 
-    void countTransmission() {
+    public void countTransmission() {
         transmittedTuples++;
     }
 

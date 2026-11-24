@@ -58,9 +58,9 @@ public class StatefulModulesTest {
         c.onTupleCompleted(tuple("c"), null, x);                     // evicts b (LRU)
         assertEquals(1000, c.onTupleArrival(tuple("b"), 1000, x));
         assertEquals(5, c.onTupleArrival(tuple("a"), 1000, x));
-        assertEquals(3, LruCacheBehaviour.hits(s));
-        assertEquals(2, LruCacheBehaviour.misses(s));
-        assertEquals(1L, (long) s.getOrDefault(LruCacheBehaviour.EVICTIONS, 0L));
+        assertEquals(3, c.getHits());
+        assertEquals(2, c.getMisses());
+        assertEquals(1, c.getEvictions());
         assertEquals(2, LruCacheBehaviour.size(s));
     }
 

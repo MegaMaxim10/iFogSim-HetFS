@@ -50,6 +50,8 @@ import org.fog.utils.TimeKeeper;
  *       {@link WorkloadModel}s (input-dependent module costs);</li>
  *   <li>D4 - {@link ModuleBehaviour}s with a {@link ModuleState} per module instance,
  *       and periodic checkpoints;</li>
+ *   <li>D5 - failure and recovery ({@link #fail()}, {@link #recover()}), driven by
+ *       a {@code TopologyEventScheduler};</li>
  *   <li>D3 - exact completion events ({@link #setExactCompletionEvents(boolean)}) and
  *       an {@link ExecutionMonitor};</li>
  * </ul>
@@ -81,6 +83,12 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     // D3
     private boolean exactCompletionEvents;
     private ExecutionMonitor executionMonitor;
+
+    // D5
+    private boolean failed;
+    private long failures;
+    private double downtimeMs;
+    private double failedSince;
 
     // counters
     private long tuplesForwarded;
@@ -256,7 +264,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
         if (ev.getTag() == HetFSEvents.LINK_FREE) {
             onLinkFree((PhysicalLink) ev.getData());
         } else if (ev.getTag() == HetFSEvents.CHECKPOINT) {
-            checkpoint();
+            if (!failed) {
+                checkpoint();
+            }
             send(getId(), checkpointIntervalMs, HetFSEvents.CHECKPOINT);
         } else {
             super.processOtherEvent(ev);
@@ -266,6 +276,10 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     @Override
     protected void processTupleArrival(SimEvent ev) {
         Tuple tuple = (Tuple) ev.getData();
+        if (failed) {
+            drop(tuple, "device failed");
+            return;
+        }
         if (router != null) {
             int target = router.resolveTarget(this, tuple);
             if (target == GraphRouter.UNPLACED) {
@@ -416,11 +430,72 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
         if (executionMonitor != null) {
             executionMonitor.onCompletion(tuple, CloudSim.clock());
         }
+        if (failed) {
+            // the tuple was executing when the device failed: its results are lost
+            for (Tuple t : resultantTuples) {
+                drop(t, "device failed");
+            }
+            return false;
+        }
         ModuleBehaviour behaviour = behaviours.get(module.getName());
         if (behaviour != null) {
             behaviour.onTupleCompleted(tuple, resultantTuples, context(module.getName()));
         }
         return true;
+    }
+
+    // ==================================================================
+    // D5: failure and recovery
+    // ==================================================================
+
+    /**
+     * Fails the device: tuples that arrive are dropped, tuples that were executing
+     * produce no output, tuples queued on its outgoing links are dropped, the state of
+     * its stateful modules is lost, and routes over the physical graph avoid it.
+     */
+    public void fail() {
+        if (failed) {
+            return;
+        }
+        failed = true;
+        failures++;
+        failedSince = CloudSim.clock();
+        loseVolatileState();
+        if (router != null) {
+            for (PhysicalLink l : router.getGraph().getOutgoingLinks(getId())) {
+                while (!l.getQueue().isEmpty()) {
+                    drop(l.getQueue().poll(), "device failed");
+                }
+                l.setBusy(false);
+            }
+            router.getGraph().setDeviceUp(getId(), false);
+        }
+    }
+
+    /** Recovers the device; stateful modules restart from their last checkpoint. */
+    public void recover() {
+        if (!failed) {
+            return;
+        }
+        failed = false;
+        downtimeMs += CloudSim.clock() - failedSince;
+        restoreFromCheckpoints();
+        if (router != null) {
+            router.getGraph().setDeviceUp(getId(), true);
+        }
+    }
+
+    public boolean isFailed() {
+        return failed;
+    }
+
+    public long getFailures() {
+        return failures;
+    }
+
+    /** Total time spent failed, up to the last recovery. */
+    public double getDowntimeMs() {
+        return downtimeMs;
     }
 
     @Override
@@ -477,6 +552,10 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
             drop(tuple, "no usable path to destination");
             return;
         }
+        if (!link.isUp()) {
+            drop(tuple, "link down");
+            return;
+        }
         tuplesForwarded++;
         onForward(tuple, link);
         if (link.isBusy()) {
@@ -491,6 +570,7 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     }
 
     private void transmit(PhysicalLink link, Tuple tuple) {
+        link.countTransmission();
         double serialisation = link.serialisationDelay(tuple.getCloudletFileSize());
         link.setBusy(true);
         send(getId(), serialisation, HetFSEvents.LINK_FREE, link);
@@ -499,7 +579,7 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
     }
 
     private void onLinkFree(PhysicalLink link) {
-        if (!link.isUp() || link.getQueue().isEmpty()) {
+        if (failed || !link.isUp() || link.getQueue().isEmpty()) {
             link.setBusy(false);
             return;
         }
