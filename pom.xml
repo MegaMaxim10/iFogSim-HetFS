@@ -7,108 +7,103 @@
 
     <groupId>org.fog</groupId>
     <artifactId>ifogsim-hetfs</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>iFogSim-HetFS</name>
-    <description>Heterogeneous, Fault-Aware and Stateful extension library for iFogSim (D1–D7: arbitrary graph topology, heterogeneous hardware, concurrent streams, stateful modules, runtime fault injection, high-resolution timing, sensor energy modelling)
-    <url>https://github.com/nafasi-digital/ifogsim-hetfs</url>
+    <description>Extension library for iFogSim: arbitrary graph topologies, heterogeneous
+        compute and input-dependent workloads, execution monitoring, stateful modules,
+        runtime topology events, tuple-lineage latency tracing with replication statistics,
+        and sensor energy models.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <!-- iFogSim at commit 5f68d39 bundles CloudSim 7, which requires Java 21. -->
+        <maven.compiler.release>21</maven.compiler.release>
+        <!-- Version string under which scripts/install-ifogsim.sh installs the iFogSim jar. -->
+        <ifogsim.version>5f68d39</ifogsim.version>
     </properties>
 
     <dependencies>
-        <!-- iFogSim (provided by user, on classpath) -->
+        <!-- iFogSim (with its embedded CloudSim 7 sources), built from the official
+             repository at commit 5f68d3947e450d8d2b4af42670be819206be68c9 and installed
+             in the local Maven repository by scripts/install-ifogsim.sh. -->
         <dependency>
-            <groupId>org.fog</groupId>
+            <groupId>org.cloudbus</groupId>
             <artifactId>ifogsim</artifactId>
-            <version>2.0.0</version>
+            <version>${ifogsim.version}</version>
             <scope>provided</scope>
         </dependency>
 
-        <!-- CloudSim (iFogSim dependency, should be available transitively) -->
+        <!-- Runtime dependencies of iFogSim itself (versions shipped in its jars/ folder). -->
         <dependency>
-            <groupId>org.cloudbus.cloudsim</groupId>
-            <artifactId>cloudsim</artifactId>
-            <version>3.0.3</version>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-math3</artifactId>
+            <version>3.5</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1.1</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>18.0</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.17.0</version>
             <scope>provided</scope>
         </dependency>
 
-        <!-- JUnit for testing -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
             <version>4.13.2</version>
             <scope>test</scope>
         </dependency>
-
-        <!-- Mockito for testing (optional but helpful) -->
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <version>3.12.4</version>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
         <plugins>
-            <!-- Java compiler -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.1</version>
+                <version>3.13.0</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <release>${maven.compiler.release}</release>
                 </configuration>
             </plugin>
-
-            <!-- Javadoc -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.2.0</version>
-                <configuration>
-                    <source>1.8</source>
-                </configuration>
-            </plugin>
-
-            <!-- Fat JAR with maven-assembly-plugin -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                    <archive>
-                        <manifest>
-                            <mainClass>org.fog.hetfs.examples.SmartEmergencyHetFS</mainClass>
-                        </manifest>
-                    </archive>
-                    <finalName>ifogsim-hetfs</finalName>
-                    <appendAssemblyId>true</appendAssemblyId>
-                </configuration>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- Surefire for unit tests -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>2.22.2</version>
+                <version>3.2.5</version>
+                <configuration>
+                    <!-- CloudSim and iFogSim keep global static state; every test class
+                         therefore runs in a fresh JVM. -->
+                    <forkCount>1</forkCount>
+                    <reuseForks>false</reuseForks>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <version>3.6.3</version>
+                <configuration>
+                    <doclint>none</doclint>
+                </configuration>
             </plugin>
         </plugins>
     </build>
