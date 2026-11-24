@@ -2,7 +2,7 @@
 
 This guide explains how to use each module of iFogSim-HetFS in an iFogSim simulation, what each module changes in the behaviour of iFogSim, and what it does not model. It assumes familiarity with the iFogSim programming model (fog devices, sensors, actuators, application modules and edges, module placement, `AppLoop`s and `TimeKeeper`).
 
-Throughout the guide, "the companion paper" refers to the source-code analysis of iFogSim (Zekeng Ndadji, Pangop Nyabeye, Konan Tchinda and Simo Takou, arXiv:2604.23122), whose challenges C1 to C9 and development directions D1 to D7 this library follows.
+Throughout the guide, "the companion paper" refers to the source-code analysis of iFogSim (Zekeng Ndadji, arXiv:2604.23122), whose challenges C1 to C9 and development directions D1 to D7 this library follows.
 
 ## 1. Principles
 

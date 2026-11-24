@@ -1,6 +1,6 @@
 # iFogSim-HetFS
 
-iFogSim-HetFS is an extension library for [iFogSim](https://github.com/Cloudslab/iFogSim). It removes, without modifying iFogSim, the modelling limitations documented in the source-code analysis of iFogSim by Zekeng Ndadji et al. (arXiv:2604.23122): tree-only topologies, hardware expressed only as MIPS, fixed module costs, stateless modules, static topologies, latency instrumentation bounded by `AppLoop`s, no sensor energy, and several configurations that iFogSim accepts but executes wrongly.
+iFogSim-HetFS is an extension library for [iFogSim](https://github.com/Cloudslab/iFogSim). It removes, without modifying iFogSim, the modelling limitations documented in the source-code analysis of iFogSim by Zekeng Ndadji (arXiv:2604.23122): tree-only topologies, hardware expressed only as MIPS, fixed module costs, stateless modules, static topologies, latency instrumentation bounded by `AppLoop`s, no sensor energy, and several configurations that iFogSim accepts but executes wrongly.
 
 The library is organised in seven modules (D1 to D7, numbered after the development directions of that analysis) and a validator:
 
