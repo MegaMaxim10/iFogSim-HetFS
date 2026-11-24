@@ -20,6 +20,7 @@ import org.fog.entities.Actuator;
 import org.fog.entities.FogDevice;
 import org.fog.entities.FogDeviceCharacteristics;
 import org.fog.entities.Tuple;
+import org.fog.hetfs.concurrent.ExecutionMonitor;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
 import org.fog.hetfs.topology.PhysicalLink;
@@ -40,6 +41,8 @@ import org.fog.utils.TimeKeeper;
  * <ul>
  *   <li>D1 - a {@link GraphRouter}, which replaces tree routing by hop-by-hop
  *       forwarding over a {@link PhysicalGraph};</li>
+ *   <li>D3 - exact completion events ({@link #setExactCompletionEvents(boolean)}) and
+ *       an {@link ExecutionMonitor};</li>
  * </ul>
  * Components of the other modules are attached in the same way (see the
  * corresponding setters).
@@ -53,6 +56,10 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     // D1
     private GraphRouter router;
+
+    // D3
+    private boolean exactCompletionEvents;
+    private ExecutionMonitor executionMonitor;
 
     // counters
     private long tuplesForwarded;
@@ -84,6 +91,37 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
 
     public GraphRouter getRouter() {
         return router;
+    }
+
+    /**
+     * D3. When enabled, the completion of every executing tuple is detected at its
+     * exact finish time.
+     *
+     * <p>iFogSim inherits from CloudSim's {@code PowerDatacenter} a processing update
+     * that, each time a tuple is submitted to a device on which another tuple is still
+     * executing, cancels every pending {@code VM_DATACENTER_EVENT} (including the
+     * finish event of the running tuple) and schedules a single new one
+     * {@code schedulingInterval} later. The completion of the running tuple is then
+     * detected up to one scheduling interval late, which iFogSim reports as latency.
+     * With this option the device schedules, after every processing update and every
+     * submission, an event at the earliest estimated finish time of the tuples it is
+     * executing.
+     */
+    public void setExactCompletionEvents(boolean exact) {
+        this.exactCompletionEvents = exact;
+    }
+
+    public boolean isExactCompletionEvents() {
+        return exactCompletionEvents;
+    }
+
+    /** D3. Attaches a per-module execution monitor (may be shared by several devices). */
+    public void setExecutionMonitor(ExecutionMonitor monitor) {
+        this.executionMonitor = monitor;
+    }
+
+    public ExecutionMonitor getExecutionMonitor() {
+        return executionMonitor;
     }
 
     // ==================================================================
@@ -177,6 +215,40 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
      * computational length and to record its arrival.
      */
     protected void prepareLocalExecution(Tuple tuple, String moduleName) {
+        if (executionMonitor != null) {
+            double nominalMs = tuple.getCloudletLength() / (double) getHost().getTotalMips();
+            executionMonitor.onArrival(getName(), moduleName, tuple, CloudSim.clock(), nominalMs);
+        }
+    }
+
+    // ==================================================================
+    // D3: exact completion events
+    // ==================================================================
+
+    @Override
+    protected void updateCloudletProcessing() {
+        super.updateCloudletProcessing();
+        if (exactCompletionEvents) {
+            scheduleNextCompletion();
+        }
+    }
+
+    @Override
+    protected void executeTuple(SimEvent ev, String moduleName) {
+        super.executeTuple(ev, moduleName);
+        if (exactCompletionEvents) {
+            scheduleNextCompletion();
+        }
+    }
+
+    private void scheduleNextCompletion() {
+        double now = CloudSim.clock();
+        // With a zero time span this call only refreshes the estimates; it returns the
+        // absolute time of the earliest expected completion (0 or MAX_VALUE if idle).
+        double next = getHost().updateCloudletsProcessing(now);
+        if (next > now && next < Double.MAX_VALUE) {
+            send(getId(), next - now, CloudActionTags.VM_DATACENTER_EVENT);
+        }
     }
 
     /**
@@ -226,6 +298,9 @@ public class HetFSFogDevice extends FogDevice implements RoutableDevice {
      * @return {@code false} to discard the resultant tuples instead of sending them
      */
     protected boolean onTupleCompleted(Tuple tuple, AppModule module, List<Tuple> resultantTuples) {
+        if (executionMonitor != null) {
+            executionMonitor.onCompletion(tuple, CloudSim.clock());
+        }
         return true;
     }
 

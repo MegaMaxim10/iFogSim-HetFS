@@ -28,6 +28,8 @@ import org.fog.entities.FogBroker;
 import org.fog.entities.FogDevice;
 import org.fog.entities.Sensor;
 import org.fog.entities.Tuple;
+import org.fog.hetfs.concurrent.ExecutionMonitor;
+import org.fog.hetfs.concurrent.ModuleExecutionStats;
 import org.fog.hetfs.core.DeviceBuilder;
 import org.fog.hetfs.core.HetFSController;
 import org.fog.hetfs.core.HetFSFogDevice;
@@ -59,6 +61,10 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *   --seed 1             jitter seed
  *   --devices hetfs      vanilla | hetfs
  *   --graph none         none | tree | mesh   (D1; hetfs devices only)
+ *   --exact-completion   detect tuple completions at their exact time (D3)
+ *   --monitor            per-module execution monitor; adds the columns of the
+ *                        ESN modules and of the focal IOPS module (D3)
+ *   --scheduling-interval 10   PowerDatacenter scheduling interval of every device
  *   --out file.csv       CSV file to which one result row is appended
  *   --label exp --run 1  free-text identifiers copied into the row
  * </pre>
@@ -105,6 +111,7 @@ public class EmergencyScenario {
     int loopAlertId = -1, loopDispatchId = -1;
     PhysicalGraph graph;
     GraphRouter router;
+    ExecutionMonitor monitor;
     long wallStart;
 
     /** Result columns, in output order. */
@@ -226,6 +233,18 @@ public class EmergencyScenario {
             b.schedulingInterval(Double.parseDouble(opt.get("scheduling-interval")));
         }
         FogDevice d = hetfs ? b.build() : b.buildVanilla();
+        if (hetfs) {
+            HetFSFogDevice h = (HetFSFogDevice) d;
+            h.setExactCompletionEvents(opt.containsKey("exact-completion"));
+            if (opt.containsKey("monitor")) {
+                if (monitor == null) {
+                    monitor = new ExecutionMonitor();
+                }
+                h.setExecutionMonitor(monitor);
+            }
+        } else if (opt.containsKey("exact-completion") || opt.containsKey("monitor")) {
+            throw new IllegalArgumentException("--exact-completion and --monitor require --devices hetfs");
+        }
         devices.add(d);
         byName.put(d.getName(), d);
         return d;
@@ -355,6 +374,22 @@ public class EmergencyScenario {
 
     /** Extension point: adds module-specific result columns. */
     void collectModules() {
+        result.put("exact_completion", opt.containsKey("exact-completion"));
+        if (monitor != null) {
+            monitorColumns("esn", "esn-classifier", "classifier");
+            monitorColumns("esn", "esn-dispatcher", "dispatcher");
+            monitorColumns("iops-" + focalUnit, "iops-" + focalUnit + "-module", "iops");
+        }
+    }
+
+    void monitorColumns(String device, String module, String prefix) {
+        ModuleExecutionStats s = monitor.get(device, module);
+        result.put(prefix + "_n", s == null ? 0 : s.getCompleted());
+        result.put(prefix + "_sojourn_ms", s == null ? null : s.getMeanSojournMs());
+        result.put(prefix + "_nominal_ms", s == null ? null : s.getMeanNominalMs());
+        result.put(prefix + "_excess_ms", s == null ? null : s.getMeanExcessMs());
+        result.put(prefix + "_max_excess_ms", s == null ? null : s.getMaxExcessMs());
+        result.put(prefix + "_max_in_progress", s == null ? 0 : s.getMaxInProgress());
     }
 
     void write() throws IOException {
