@@ -46,6 +46,8 @@ import org.fog.hetfs.core.HetFSActuator;
 import org.fog.hetfs.core.HetFSFogDevice;
 import org.fog.hetfs.core.HetFSSensor;
 import org.fog.hetfs.timing.LatencyTracer;
+import org.fog.hetfs.validation.ApplicationValidator;
+import org.fog.hetfs.validation.Finding;
 import org.fog.hetfs.timing.RunningStatistics;
 import org.fog.hetfs.topology.GraphRouter;
 import org.fog.hetfs.topology.PhysicalGraph;
@@ -97,6 +99,10 @@ import org.fog.utils.distribution.DeterministicDistribution;
  *                        and idle W (D7); implies HetFS sensors
  *   --sensor-interval ms  SAS emission period (default 10)
  *   --sim-time ms        simulated duration (iFogSim default 2000)
+ *   --shared-incident-type   all SAS sensors emit the same tuple type INCIDENT (the
+ *                        configuration the companion paper had to avoid, C8)
+ *   --validate           run ApplicationValidator and report its findings
+ *   --hetfs-sensors      use HetFSSensor (deterministic edge resolution) for the SAS
  *   --trace              lineage tracing (D6): HetFS sensors and actuators, and the
  *                        end-to-end and full-boundary latencies of the focal branch
  *   --out file.csv       CSV file to which one result row is appended
@@ -218,6 +224,23 @@ public class EmergencyScenario {
             mapping.addModuleToDevice(pin.getKey(), pin.getValue());
         }
 
+        if (opt.containsKey("validate")) {
+            List<Finding> findings = ApplicationValidator.validate(app, sensors, ApplicationValidator.Placement.MAPPING, mapping);
+            int errors = 0;
+            StringBuilder codes = new StringBuilder();
+            for (Finding f : findings) {
+                System.err.println(f);
+                if (f.getSeverity() == Finding.Severity.ERROR) {
+                    errors++;
+                }
+                if (codes.indexOf(f.getCode()) < 0) {
+                    codes.append(codes.length() == 0 ? "" : ";").append(f.getCode());
+                }
+            }
+            validationErrors = errors;
+            validationCodes = codes.toString();
+        }
+
         HetFSController controller = new HetFSController("master-controller", devices, sensors, actuators);
         controller.setExitOnStop(false);
         controller.submitApplication(app, 0, new ModulePlacementMapping(devices, app, mapping));
@@ -250,7 +273,10 @@ public class EmergencyScenario {
             cad.setParentId(esn.getId());
             cad.setUplinkLatency(latCadToEsn);
             if (activeZones.contains(zone)) {
-                Sensor sas = createSensor("sas-" + zone, "INCIDENT_" + zone, userId);
+                Sensor sas = createSensor("sas-" + zone, incidentType(zone), userId);
+                if (sas instanceof HetFSSensor) {
+                    sas.setDestModuleName("cad-" + zone + "-module");
+                }
                 sas.setGatewayDeviceId(cad.getId());
                 sas.setLatency(latSasToCad);
                 sensors.add(sas);
@@ -309,7 +335,7 @@ public class EmergencyScenario {
 
     Sensor createSensor(String name, String tupleType, int userId) {
         double interval = Double.parseDouble(opt.getOrDefault("sensor-interval", "" + ACTIVE_INTERVAL));
-        if (!tracing() && !opt.containsKey("battery")) {
+        if (!tracing() && !opt.containsKey("battery") && !opt.containsKey("hetfs-sensors")) {
             return new Sensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(interval));
         }
         HetFSSensor s = new HetFSSensor(name, tupleType, userId, APP_ID, new DeterministicDistribution(interval));
@@ -355,6 +381,10 @@ public class EmergencyScenario {
     // Application (identical to the companion implementation)
     // ==================================================================
 
+    String incidentType(String zone) {
+        return opt.containsKey("shared-incident-type") ? "INCIDENT" : "INCIDENT_" + zone;
+    }
+
     boolean routingKernel() {
         return opt.containsKey("routing-kernel");
     }
@@ -367,7 +397,7 @@ public class EmergencyScenario {
 
         for (String zone : activeZones) {
             String module = "cad-" + zone + "-module";
-            String incident = "INCIDENT_" + zone;
+            String incident = incidentType(zone);
             app.addAppModule(module, 256);
             app.addAppEdge(incident, module, 500, TUPLE_BYTES, incident, Tuple.UP, AppEdge.SENSOR);
             app.addAppEdge(module, "esn-classifier", 2000, TUPLE_BYTES, "ALERT_MSG", Tuple.UP, AppEdge.MODULE);
@@ -389,7 +419,7 @@ public class EmergencyScenario {
         }
 
         final String focalCad = "cad-" + focalZone + "-module";
-        final String focalIncident = "INCIDENT_" + focalZone;
+        final String focalIncident = incidentType(focalZone);
         final AppLoop loopAlert = new AppLoop(new ArrayList<String>() {{
             add(focalIncident);
             add(focalCad);
@@ -488,6 +518,8 @@ public class EmergencyScenario {
     }
 
     TopologyEventScheduler faults;
+    int validationErrors = -1;
+    String validationCodes = "";
 
     void configureAfterController(HetFSController controller) {
         if (!opt.containsKey("fail-device") && !opt.containsKey("fail-link")) {
@@ -562,6 +594,12 @@ public class EmergencyScenario {
     /** Extension point: adds module-specific result columns. */
     void collectModules() {
         result.put("exact_completion", opt.containsKey("exact-completion"));
+        if (validationErrors >= 0) {
+            result.put("validation_errors", validationErrors);
+            result.put("validation_codes", validationCodes);
+            result.put("focal_cad_executed", monitor == null || monitor.get("cad-" + focalZone, "cad-" + focalZone + "-module") == null
+                    ? 0 : monitor.get("cad-" + focalZone, "cad-" + focalZone + "-module").getCompleted());
+        }
         if (hetfs) {
             long dropped = 0;
             long forwarded = 0;
