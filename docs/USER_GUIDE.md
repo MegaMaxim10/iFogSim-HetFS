@@ -10,9 +10,11 @@ Throughout the guide, "the companion paper" refers to the source-code analysis o
 
 **No modification of iFogSim.** The library only subclasses iFogSim classes and overrides protected methods. It is compiled against iFogSim at commit `5f68d39` (October 2025), the tree analysed in the companion paper.
 
-**Backward compatibility is tested, not assumed.** On the companion case study and on the two case studies of the original iFogSim paper, a `HetFSFogDevice` without components produces the same latencies, energies, costs and network usage as a `FogDevice`, digit for digit (see `BackwardCompatibilityTest` and `ReferenceScenariosTest`).
+**Backward compatibility is tested, not assumed.** On the companion case study and on the two case studies of the original iFogSim paper, a `HetFSFogDevice` without components produces the same latencies, energies, costs and network usage as a `FogDevice`, digit for digit (see `BackwardCompatibilityIT` and `ReferenceScenariosIT`).
 
 **One simulation per JVM.** iFogSim and CloudSim keep global static state (entity registry, `TimeKeeper` singleton, tuple and entity counters). Run each simulation in its own JVM, as the examples and the experiment script do.
+
+**Library and examples.** Applications depend on the `hetfs-core` module (artifact `ifogsim-hetfs`) only. The `hetfs-examples` module holds the scenarios used in the evaluation; they show complete simulations and are not part of the API.
 
 ## 2. Creating devices and ending a run
 
@@ -146,6 +148,14 @@ FaultInjector.on(faults)
 ```
 
 The scheduler is a CloudSim entity: create it after `CloudSim.init` and before `startSimulation`. A failed device drops the tuples that reach it, discards the outputs of the tuples it was executing and the tuples queued on its links, loses the state of its stateful modules and is avoided by graph routes. On recovery, stateful modules restart from their last checkpoint (checkpoints are not taken while the device is down). Link events need a graph. Tuples already in flight on a link that fails are delivered.
+
+Every tuple a `HetFSFogDevice` discards is counted with its reason. `getTuplesDropped()` gives the total, `getDrops()` the count per `DropReason`, and an attached `LatencyTracer` records the same reasons per lineage:
+
+| `DropReason` | Cause |
+|---|---|
+| `DEVICE_FAILED` | the device was down when the tuple arrived or when its execution finished (D5) |
+| `UNPLACED_DESTINATION` | no device hosts the destination module (D1) |
+| `UNREACHABLE_DESTINATION` | hosts exist but no usable path leads to any of them (D1) |
 
 ## 8. D6: lineage tracing and statistics
 

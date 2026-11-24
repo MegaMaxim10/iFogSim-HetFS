@@ -21,18 +21,46 @@ All modules are attached to one device class, `HetFSFogDevice`, as optional comp
 
 * JDK 21 (iFogSim at commit `5f68d39` bundles CloudSim 7, which needs Java 21).
 * iFogSim built from the official repository at commit `5f68d3947e450d8d2b4af42670be819206be68c9`. The script below does it.
-* Maven 3.6+ is optional: `build.sh` builds and tests the library with `javac` alone.
+* Maven 3.6+ is optional: `build.sh` builds and tests the project with `javac` alone.
+* Python 3.9+ with the packages of `experiments/requirements.txt`, to reproduce the evaluation.
+
+## Project layout
+
+```
+pom.xml                  parent POM (dependency and plugin versions)
+hetfs-core/              the library, artifact ifogsim-hetfs
+  src/main/java          org.fog.hetfs.{core,topology,hardware,concurrent,stateful,events,timing,energy,validation}
+  src/test/java          unit tests (*Test)
+hetfs-examples/          example programs, artifact ifogsim-hetfs-examples
+  src/main/java          org.fog.hetfs.examples.{emergency,reference,support}
+  src/test/java          integration tests (*IT), each simulation in its own JVM
+experiments/             evaluation scripts, raw results (CSV) and LaTeX tables
+docs/USER_GUIDE.md       user guide
+scripts/                 installation of iFogSim
+build.sh                 Maven-free build
+```
+
+Applications depend on `hetfs-core` only. The examples and the integration tests live in a separate module so that the library jar contains nothing else.
 
 ## Building
 
+With Maven:
+
 ```bash
-scripts/install-ifogsim.sh            # clones and builds iFogSim 5f68d39 into lib/
-                                       # (and installs it in ~/.m2 when Maven is present)
-./build.sh test                        # compiles and runs the unit and scenario tests
-./build.sh jar                         # target/ifogsim-hetfs.jar
+scripts/install-ifogsim.sh     # clones and builds iFogSim 5f68d39, installs it in ~/.m2 and lib/
+mvn verify                     # unit tests (surefire) and integration tests (failsafe)
+mvn -pl hetfs-core package     # hetfs-core/target/ifogsim-hetfs-2.0.0-SNAPSHOT.jar
 ```
 
-`build.sh test` needs `junit-4.13.2.jar` and `hamcrest-core-1.3.jar` in `lib/`. With Maven, `mvn test` uses the dependencies declared in `pom.xml`.
+Without Maven (`lib/` must also contain `junit-4.13.2.jar` and `hamcrest-core-1.3.jar` for the tests):
+
+```bash
+scripts/install-ifogsim.sh
+./build.sh test                # unit tests
+./build.sh verify              # unit and integration tests
+./build.sh jar                 # hetfs-core/target/ifogsim-hetfs.jar
+./build.sh run <main class> [options...]
+```
 
 ## A first example
 
@@ -82,6 +110,8 @@ The user guide (`docs/USER_GUIDE.md`) describes every module, its options and it
 * `org.fog.hetfs.examples.reference.ReferenceScenarios`: the two case studies of the original iFogSim paper (Gupta et al., 2017), the EEG Tractor Beam game and the intelligent-surveillance camera network, runnable on plain or HetFS devices.
 * `org.fog.hetfs.examples.emergency.CalibrateDijkstra`: measures the road-network Dijkstra and prints the data used to calibrate the D2 workload model.
 
+Both scenarios print one CSV row (header and values) or append it to the file given by `--out`. An unknown option is rejected; the class Javadoc lists the options.
+
 ```bash
 ./build.sh run org.fog.hetfs.examples.emergency.EmergencyScenario \
     --zones z1,z2 --exact-completion --trace --monitor
@@ -91,12 +121,17 @@ The user guide (`docs/USER_GUIDE.md`) describes every module, its options and it
 
 ```bash
 ./build.sh compile
+python3 -m pip install -r experiments/requirements.txt
 python3 experiments/run_experiments.py     # all experiments, CSV files in experiments/results/
 python3 experiments/analyse.py             # summary tables in experiments/tables/
 ```
 
 Each simulation runs in its own JVM, because iFogSim and CloudSim keep global static state. `ReferenceScenarios --seed` reseeds the generator behind `Math.random()` (used by iFogSim's `FractionalSelectivity`); the JVM then needs `--add-opens java.base/java.lang=ALL-UNNAMED`, which the experiment script passes.
 
+## Contributing
+
+See `CONTRIBUTING.md`. Changes are listed in `CHANGELOG.md`.
+
 ## Licence
 
-Apache License 2.0. The reference scenarios are adapted from iFogSim examples distributed under the MIT licence (Copyright (c) 2025 The CLOUDS Laboratory).
+Apache License 2.0 (`LICENSE`). The reference scenarios are adapted from iFogSim examples distributed under the MIT licence (Copyright (c) 2025 The CLOUDS Laboratory); `NOTICE` gives the attribution.
