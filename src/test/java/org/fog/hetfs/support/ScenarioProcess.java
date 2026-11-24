@@ -24,6 +24,8 @@ public final class ScenarioProcess {
         out.delete();
         List<String> cmd = new ArrayList<>();
         cmd.add(System.getProperty("java.home") + File.separator + "bin" + File.separator + "java");
+        cmd.add("--add-opens");
+        cmd.add("java.base/java.lang=ALL-UNNAMED");
         cmd.add("-cp");
         cmd.add(System.getProperty("java.class.path"));
         cmd.add(mainClass);
