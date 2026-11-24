@@ -1,0 +1,6 @@
+experiment,run,concurrent_incidents,active_zones,focal_zone,focal_unit,seed,alert_latency_ms,dispatch_latency_ms,coordination_latency_ms
+exp3,1,2,z1;z2,z1,c1,1,104.199818,103.086827,207.286645
+exp3,2,2,z1;z2,z1,c1,2,106.245549,105.118135,211.363684
+exp3,3,2,z1;z2,z1,c1,3,104.709773,103.359303,208.069076
+exp3,4,2,z1;z2,z1,c1,4,106.023390,105.990329,212.013719
+exp3,5,2,z1;z2,z1,c1,5,104.443817,102.681737,207.125554

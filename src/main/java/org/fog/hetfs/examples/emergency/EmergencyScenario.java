@@ -128,9 +128,13 @@ public class EmergencyScenario {
     static final double LAT_CAD_RING = 20.0;
 
     static final double ACTIVE_INTERVAL = 10.0;
-    /** Default Dijkstra workload; the experiments pass calibrated values explicitly. */
-    static final double DEFAULT_MI_FIXED = 0.0;
-    static final double DEFAULT_MI_PER_OP = 0.05;
+    /**
+     * Default Dijkstra workload a + c (V+E) log2 V on the 10 000-MIPS ESN: least-squares
+     * fit of the median times measured by {@link CalibrateDijkstra} on 25 to 400-node
+     * networks (5 JVMs x 5000 timed runs per size, experiments/results/calibration.csv).
+     */
+    static final double DEFAULT_MI_FIXED = 4.40;
+    static final double DEFAULT_MI_PER_OP = 0.0487;
     static final long TUPLE_BYTES = 256;
     static final long LINK_BANDWIDTH = 10_000_000;
 

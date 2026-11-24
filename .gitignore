@@ -5,3 +5,4 @@ lib/
 *.iml
 .vscode/
 experiments/results/raw/
+*.part[0-9]*
